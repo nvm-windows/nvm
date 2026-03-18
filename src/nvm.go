@@ -25,6 +25,7 @@ import (
 	"nvm/encoding"
 	"nvm/file"
 	"nvm/node"
+	nvsemver "nvm/semver"
 	"nvm/upgrade"
 	"nvm/utility"
 	"nvm/web"
@@ -649,9 +650,11 @@ func install(version string, cpuarch string) {
 			return
 		}
 
-		if checkVersionExceedsLatest(version) {
-			status <- Status{Err: fmt.Errorf("Node.js v%s is not yet released or is not available for download yet.", version)}
-			return
+		if !nvsemver.IsFullSemver(version) {
+			if checkVersionExceedsLatest(version) {
+				status <- Status{Err: fmt.Errorf("Node.js v%s is not yet released or is not available for download yet.", version)}
+				return
+			}
 		}
 
 		if cpuarch == "64" && !web.IsNode64bitAvailable(version) {
@@ -1768,6 +1771,15 @@ func help() {
 // ===============================================================
 // BEGIN | Utility functions
 // ===============================================================
+
+// isUsingMirror returns true when a custom node mirror is configured
+// (i.e., env.node_mirror is set to a non-empty value other than "none").
+func isUsingMirror() bool {
+	return len(env.node_mirror) > 0 && env.node_mirror != "none"
+}
+
+
+
 func checkVersionExceedsLatest(version string) bool {
 	//content := web.GetRemoteTextFile("http://nodejs.org/dist/latest/SHASUMS256.txt")
 	url := web.GetFullNodeUrl("latest/SHASUMS256.txt")
@@ -1788,6 +1800,12 @@ func checkVersionExceedsLatest(version string) bool {
 		if ver < lat {
 			return false
 		} else if ver > lat {
+			if isUsingMirror() {
+				if node.IsVersionAvailable(version) {
+					fmt.Printf("\nWARNING: The mirror's latest/ folder appears stale (reports v%s). The requested version v%s exists in the mirror's index. Consider installing with: nvm install %s\n\n", latest, version, version)
+					return false
+				}
+			}
 			return true
 		}
 	}
@@ -1831,7 +1849,19 @@ func getLatest() string {
 	}
 	re := regexp.MustCompile("node-v(.+)+msi")
 	reg := regexp.MustCompile("node-v|-[xa].+")
-	return reg.ReplaceAllString(re.FindString(content), "")
+	latest := reg.ReplaceAllString(re.FindString(content), "")
+
+	if isUsingMirror() {
+		all, _, _, _, _, _ := node.GetAvailable()
+		if len(all) > 0 {
+			newestFromIndex := all[0]
+			if latest != newestFromIndex {
+				fmt.Printf("\nWARNING: The mirror's latest version (v%s) differs from the index (v%s). The mirror's latest/ folder may be stale. Consider using: nvm install %s\n\n", latest, newestFromIndex, newestFromIndex)
+			}
+		}
+	}
+
+	return latest
 }
 
 func getLTS() string {

@@ -378,3 +378,19 @@ func NewBuildVersion(s string) (string, error) {
 	}
 	return s, nil
 }
+
+// IsFullSemver returns true when version has exactly 3 numeric dot-separated
+// parts (e.g., "22.16.0"). Useful for determining if a version string is a
+// complete major.minor.patch specification vs a partial version or alias.
+func IsFullSemver(version string) bool {
+	_, err := Parse(version)
+	if err != nil {
+		return false
+	}
+	// Parse accepts pre-release and build metadata (e.g., "1.2.3-beta").
+	// A "full semver" for our purposes is strictly major.minor.patch with no extras.
+	if strings.Contains(version, "-") || strings.Contains(version, "+") {
+		return false
+	}
+	return true
+}
