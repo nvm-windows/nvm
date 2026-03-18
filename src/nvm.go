@@ -876,7 +876,7 @@ func reinstall(version, cpuarch string) {
 		if v == version {
 			// _, err := runElevated(fmt.Sprintf(`"%s" cmd /C rmdir "%s"`, filepath.Join(env.root, "elevate.cmd"), filepath.Clean(env.symlink)))
 			abortOnBadSymlink(env.symlink)
-			_, err := elevatedRun("rmdir", filepath.Clean(env.symlink))
+			_, err := elevatedRun("mklink", "/D", fmt.Sprintf("%q", filepath.Clean(env.symlink)))
 			if err != nil {
 				fmt.Println(fmt.Sprint(err))
 				return
@@ -926,7 +926,7 @@ func uninstall(version string) {
 		if v == version {
 			// _, err := runElevated(fmt.Sprintf(`"%s" cmd /C rmdir "%s"`, filepath.Join(env.root, "elevate.cmd"), filepath.Clean(env.symlink)))
 			abortOnBadSymlink(env.symlink)
-			_, err := elevatedRun("rmdir", filepath.Clean(env.symlink))
+			_, err := elevatedRun("mklink", "/D", fmt.Sprintf("%q", filepath.Clean(env.symlink)))
 			if err != nil {
 				fmt.Println(fmt.Sprint(err))
 				return
@@ -1183,7 +1183,7 @@ func use(version string, cpuarch string, reload ...bool) {
 			}
 
 			// _, err := runElevated(fmt.Sprintf(`"%s" cmd /C rmdir "%s"`, filepath.Join(env.root, "elevate.cmd"), filepath.Clean(env.symlink)))
-			_, err := elevatedRun("rmdir", filepath.Clean(env.symlink))
+			_, err := elevatedRun("mklink", "/D", fmt.Sprintf("%q", filepath.Clean(env.symlink)))
 			if err != nil {
 				if accessDenied(err) {
 					status <- Status{Err: err, Done: true}
@@ -1197,7 +1197,7 @@ func use(version string, cpuarch string, reload ...bool) {
 		ok, err = elevatedRun("mklink", "/D", filepath.Clean(env.symlink), filepath.Join(env.root, "v"+version))
 		if err != nil {
 			if strings.Contains(err.Error(), "not have sufficient privilege") || strings.Contains(strings.ToLower(err.Error()), "access is denied") {
-				ok, err = elevatedRun("mklink", "/D", filepath.Clean(env.symlink), filepath.Join(env.root, "v"+version))
+				ok, err = elevatedRun("mklink", "/D", fmt.Sprintf("%q", filepath.Clean(env.symlink)), fmt.Sprintf("%q", filepath.Join(env.root, "v"+version)))
 				if err != nil {
 					ok = false
 					status <- Status{Err: err, Done: true}
@@ -1211,7 +1211,7 @@ func use(version string, cpuarch string, reload ...bool) {
 					status <- Status{Err: err, Done: true}
 				}
 
-				ok, err = elevatedRun("rmdir", filepath.Clean(env.symlink))
+				ok, err = elevatedRun("mklink", "/D", fmt.Sprintf("%q", filepath.Clean(env.symlink)))
 				// ok, err = runElevated(fmt.Sprintf(`"%s" cmd /C rmdir "%s"`, filepath.Join(env.root, "elevate.cmd"), filepath.Clean(env.symlink)))
 				reloadable := true
 				if len(reload) > 0 {
@@ -1411,7 +1411,7 @@ func enable() {
 func disable() {
 	// ok, err := runElevated(fmt.Sprintf(`"%s" cmd /C rmdir "%s"`, filepath.Join(env.root, "elevate.cmd"), filepath.Clean(env.symlink)))
 	abortOnBadSymlink(env.symlink)
-	ok, err := elevatedRun("rmdir", filepath.Clean(env.symlink))
+	ok, err := elevatedRun("mklink", "/D", fmt.Sprintf("%q", filepath.Clean(env.symlink)))
 	if !ok {
 		return
 	}
@@ -1875,15 +1875,27 @@ func updateRootDir(path string) {
 }
 
 func elevatedRun(name string, arg ...string) (bool, error) {
-	ok, err := run("cmd", nil, append([]string{"/C", name}, arg...)...)
-	if err != nil {
-		exe, _ := os.Executable()
-		cmd := filepath.Join(filepath.Dir(exe), "elevate.cmd")
-		ok, err = run(cmd, &env.root, append([]string{"cmd", "/C", name}, arg...)...)
+  ok, err := run("cmd", nil, append([]string{"/C", name}, arg...)...)
+	if err == nil {
+		return ok, nil
 	}
+  
+	exe, _ := os.Executable()
+	cmd := filepath.Join(filepath.Dir(exe), "elevate.cmd")
+	ok, err = run(cmd, &env.root, append([]string{"cmd", "/C", name}, arg...)...)
 
 	return ok, err
 }
+// func elevatedRun(name string, arg ...string) (bool, error) {
+// 	ok, err := run("cmd", nil, append([]string{"/C", name}, arg...)...)
+// 	if err != nil {
+// 		exe, _ := os.Executable()
+// 		cmd := filepath.Join(filepath.Dir(exe), "elevate.cmd")
+// 		ok, err = run(cmd, &env.root, append([]string{"cmd", "/C", name}, arg...)...)
+// 	}
+
+// 	return ok, err
+// }
 
 func run(name string, dir *string, arg ...string) (bool, error) {
 	c := exec.Command(name, arg...)
@@ -1901,47 +1913,29 @@ func run(name string, dir *string, arg ...string) (bool, error) {
 }
 
 func runElevated(command string, forceUAC ...bool) (bool, error) {
-	uac := true //false
-	if len(forceUAC) > 0 {
-		uac = forceUAC[0]
-	}
+    uac := true
+    if len(forceUAC) > 0 {
+        uac = forceUAC[0]
+    }
 
-	if uac {
-		// Alternative elevation option at stackoverflow.com/questions/31558066/how-to-ask-for-administer-privileges-on-windows-with-go
-		cmd := exec.Command(filepath.Join(env.root, "elevate.cmd"), command)
+    // For this experiment: do NOT call elevate.cmd at all.
 
-		var output bytes.Buffer
-		var _stderr bytes.Buffer
-		cmd.Stdout = &output
-		cmd.Stderr = &_stderr
-		perr := cmd.Run()
-		if perr != nil {
-			return false, errors.New(fmt.Sprint(perr) + ": " + _stderr.String())
-		}
-	}
+    c := exec.Command("cmd")
+    c.SysProcAttr = &syscall.SysProcAttr{CmdLine: command}
 
-	c := exec.Command("cmd") // dummy executable that actually needs to exist but we'll overwrite using .SysProcAttr
+    var stderr bytes.Buffer
+    c.Stderr = &stderr
 
-	// Based on the official docs, syscall.SysProcAttr.CmdLine doesn't exist.
-	// But it does and is vital:
-	// https://github.com/golang/go/issues/15566#issuecomment-333274825
-	// https://medium.com/@felixge/killing-a-child-process-and-all-of-its-children-in-go-54079af94773
-	c.SysProcAttr = &syscall.SysProcAttr{CmdLine: command}
+    err := c.Run()
+    if err != nil {
+        msg := stderr.String()
+        if strings.Contains(msg, "not have sufficient privilege") && uac {
+            return runElevated(command, false)
+        }
+        return false, errors.New(fmt.Sprint(err) + ": " + msg)
+    }
 
-	var stderr bytes.Buffer
-	c.Stderr = &stderr
-
-	err := c.Run()
-	if err != nil {
-		msg := stderr.String()
-		if strings.Contains(msg, "not have sufficient privilege") && uac {
-			return runElevated(command, false)
-		}
-		// fmt.Println(fmt.Sprint(err) + ": " + stderr.String())
-		return false, errors.New(fmt.Sprint(err) + ": " + msg)
-	}
-
-	return true, nil
+    return true, nil
 }
 
 func saveSettings() {

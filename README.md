@@ -165,16 +165,98 @@ See the [wiki](https://github.com/coreybutler/nvm-windows/wiki/Common-Issues#how
 
 ### Build from source
 
-- Install go from http://golang.org
-- Download source / Git Clone the repo
-- Change GOARCH to amd64 in build.bat if you feel like building a 64-bit executable
-- Fire up a Windows command prompt and change directory to project dir
-- Execute `go get github.com/blang/semver`
-- Execute `go get github.com/olekukonko/tablewriter`
-- Execute `build.bat`
-- Check the `dist`directory for generated setup program.
+NVM for Windows is still written in Go, but the installer build pipeline now uses a small Deno script plus a convenience batch file instead of the legacy manual `go get` instructions. [pkg.go](https://pkg.go.dev/github.com/bajlandokg/nvm-windows-2020)
 
----
+#### Prerequisites
+
+- Go toolchain installed (`go` on `PATH`). [github](https://github.com/coreybutler/nvm-windows/blob/master/README.md)
+- [Deno](https://deno.land) installed (`deno` on `PATH`). [docs.deno](https://docs.deno.com/runtime/fundamentals/security/)
+- Inno Setup compiler (`iscc.exe`) located at `./assets/buildtools/iscc.exe`.
+- `nvm.iss` installer template and `src/manifest.json` present in the repo.
+
+#### 1. Build the `nvm.exe` binary
+
+From a terminal in the repo root:
+
+```powershell
+build.bat
+```
+
+This compiles the Go sources and writes the `nvm.exe` binary and related artifacts into `./dist` (same as the historical behavior). [pkg.go](https://pkg.go.dev/github.com/bajlandokg/nvm-windows-2020)
+
+#### 2. Build the installer via Deno (`build.js`)
+
+The installer is built with a Deno script named `build.js`. It:
+
+- Reads `./nvm.iss` (Inno Setup script template).
+- Reads `./src/manifest.json` and extracts the current version.
+- Replaces all `{{VERSION}}` placeholders in `nvm.iss` with the manifest version.
+- Writes the result to `./.tmp.iss`.
+- Calls `.\assets\buildtools\iscc.exe .\.tmp.iss` to compile the installer.
+- Streams `iscc.exe` stdout and stderr to your console.
+- Deletes `.tmp.iss` and exits with the same status code as `iscc.exe`.
+
+Run it with:
+
+```powershell
+deno run --allow-read --allow-write --allow-run .\build.js
+```
+
+- `--allow-read` / `--allow-write` are needed for `nvm.iss`, `manifest.json`, and `.tmp.iss`. [stackoverflow](https://stackoverflow.com/questions/65729179/how-to-add-permission-flags-in-deno-compile)
+- `--allow-run` is required to invoke `iscc.exe` as a subprocess. [deployhq](https://www.deployhq.com/guides/deno)
+
+On success, Inno Setup emits the installer executable into the location specified inside `nvm.iss` (typically under `./dist`).
+
+### Local dev helpers
+
+#### `build.bat`
+
+- Thin wrapper around the Go build.
+- Compiles the `nvm` CLI and drops artifacts into `./dist`, as the original README documented. [github](https://github.com/coreybutler/nvm-windows/blob/master/README.md)
+
+#### `setup-test-env.ps1`
+
+To experiment with a locally built `nvm.exe` and multiple Node versions **without touching** the original `dist` folder or a global Node installation, use `setup-test-env.ps1` from the repo root.
+
+What it does:
+
+1. Deletes any existing `./test-env` and recreates it.
+2. Copies everything from `./dist` into `./test-env` (including the freshly built `nvm.exe`).
+3. Copies helper/elevation scripts from `./assets` into `./test-env` if present.
+4. Writes a `settings.txt` in `./test-env` that points both `root` and `path` into `test-env`:
+   ```text
+   root: <repo>\test-env
+   path: <repo>\test-env\nodejs
+   arch: 64
+   proxy: none
+   ```
+5. Sets these variables for the **current PowerShell session**:
+   ```powershell
+   $env:NVM_HOME    = "<repo>\test-env"
+   $env:NVM_SYMLINK = "<repo>\test-env\nodejs"
+   $env:PATH        = "<repo>\test-env;<repo>\test-env\nodejs;$env:PATH"
+   ```
+6. When dot‑sourced, changes the working directory into `./test-env`.
+
+Usage (PowerShell):
+
+```powershell
+# Optional: allow local scripts in this session only
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+
+# Prepare isolated env (dot-sourced!) and enter test-env
+. .\setup-test-env.ps1
+
+# Now you're in .\test-env and nvm is wired to this folder only
+.\nvm.exe install 20.20.1
+.\nvm.exe use 20.20.1
+node -v
+```
+
+Notes:
+
+- Environment changes are local to that PowerShell process; new terminals or `cmd.exe` will not see them.
+- In PowerShell, use `$env:NVM_HOME` (not `%NVM_HOME%`) to inspect env vars.
 
 ## :bulb: Why another version manager?
 

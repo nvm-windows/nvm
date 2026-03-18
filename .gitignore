@@ -42,3 +42,4 @@ bin/nvm/*
 !.gitattributes
 !.github
 tests
+test-env
