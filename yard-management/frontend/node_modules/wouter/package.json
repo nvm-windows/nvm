@@ -1,0 +1,73 @@
+{
+  "name": "wouter",
+  "version": "3.9.0",
+  "description": "Minimalist-friendly ~1.5KB router for React",
+  "type": "module",
+  "keywords": [
+    "react",
+    "preact",
+    "router",
+    "tiny",
+    "routing",
+    "hooks",
+    "useLocation"
+  ],
+  "files": [
+    "src",
+    "types/**/*.d.ts",
+    "types/*.d.ts"
+  ],
+  "main": "src/index.js",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./use-browser-location": {
+      "types": "./types/use-browser-location.d.ts",
+      "default": "./src/use-browser-location.js"
+    },
+    "./use-hash-location": {
+      "types": "./types/use-hash-location.d.ts",
+      "default": "./src/use-hash-location.js"
+    },
+    "./memory-location": {
+      "types": "./types/memory-location.d.ts",
+      "default": "./src/memory-location.js"
+    }
+  },
+  "types": "types/index.d.ts",
+  "typesVersions": {
+    ">=4.1": {
+      "types/index.d.ts": [
+        "types/index.d.ts"
+      ],
+      "use-browser-location": [
+        "types/use-browser-location.d.ts"
+      ],
+      "use-hash-location": [
+        "types/use-hash-location.d.ts"
+      ],
+      "memory-location": [
+        "types/memory-location.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "prepublishOnly": "cp ../../README.md ."
+  },
+  "author": "Alexey Taktarov <molefrog@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/molefrog/wouter.git"
+  },
+  "license": "Unlicense",
+  "peerDependencies": {
+    "react": ">=16.8.0"
+  },
+  "dependencies": {
+    "mitt": "^3.0.1",
+    "regexparam": "^3.0.0",
+    "use-sync-external-store": "^1.0.0"
+  }
+}

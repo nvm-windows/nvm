@@ -1,0 +1,48 @@
+{
+  "name": "regexparam",
+  "version": "3.0.0",
+  "repository": "lukeed/regexparam",
+  "description": "A tiny (399B) utility that converts route patterns into RegExp. Limited alternative to `path-to-regexp` 🙇‍",
+  "unpkg": "dist/index.min.js",
+  "module": "dist/index.mjs",
+  "main": "dist/index.js",
+  "types": "index.d.ts",
+  "license": "MIT",
+  "author": {
+    "name": "Luke Edwards",
+    "email": "luke.edwards05@gmail.com",
+    "url": "https://lukeed.com"
+  },
+  "engines": {
+    "node": ">=8"
+  },
+  "scripts": {
+    "build": "bundt",
+    "test": "uvu -r esm test"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.d.ts",
+    "dist"
+  ],
+  "keywords": [
+    "regexp",
+    "route",
+    "routing",
+    "inject",
+    "parse"
+  ],
+  "devDependencies": {
+    "bundt": "1.1.2",
+    "esm": "3.2.25",
+    "uvu": "0.5.1"
+  }
+}

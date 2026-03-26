@@ -1,0 +1,16 @@
+{
+  "name": "yard-management-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Yard management backend API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  }
+}
