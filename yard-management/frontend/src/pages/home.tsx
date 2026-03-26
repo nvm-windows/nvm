@@ -1,25 +1,21 @@
-import { useState } from 'react'
-import { LoginPage } from '@/components/LoginPage'
-import { Dashboard } from '@/components/Dashboard'
+import { useState } from "react";
+import { LoginPage } from "@/components/LoginPage";
+import { Dashboard } from "@/components/Dashboard";
 
 export default function Home() {
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return !!localStorage.getItem('token')
-  })
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const handleLoginSuccess = () => {
-    setIsLoggedIn(true)
-  }
+    setIsLoggedIn(true);
+  };
 
   const handleLogout = () => {
-    setIsLoggedIn(false)
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-  }
+    setIsLoggedIn(false);
+  };
 
   if (!isLoggedIn) {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} />
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  return <Dashboard onLogout={handleLogout} />
+  return <Dashboard onLogout={handleLogout} />;
 }
