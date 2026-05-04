@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+
+# This allows calling nvm (without .exe) from WSL bash
+
+NVM_DIR=$(cd "$(dirname "$0")" && pwd)
+NVM_EXE="$NVM_DIR/nvm.exe"
+
+exec "$NVM_EXE" "$@"
