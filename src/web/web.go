@@ -170,6 +170,7 @@ func Download(url string, target string, version string) bool {
 		_, err = io.Copy(output, response.Body)
 		if err != nil {
 			fmt.Printf("Error while downloading %s: %v\n", url, err)
+			return false
 		}
 	}
 
