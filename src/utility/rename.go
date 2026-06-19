@@ -5,16 +5,48 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 )
 
+// Rename moves old to new.
+//
+// It first attempts a cheap filesystem rename, which only works when the source
+// and destination live on the same volume. That rename can still fail on
+// Windows when a file in the source tree is briefly locked right after an unzip
+// (e.g. antivirus scanning a freshly-extracted 100MB+ node.exe), so it is
+// retried with a short backoff. If the rename ultimately fails — whether because
+// the paths are on different volumes or because the directory entry simply
+// cannot be moved — it falls back to a recursive copy + delete, which opens each
+// file individually instead of relying on a single atomic directory rename.
+//
+// This makes the temp->install-root move reliable. Previously a same-volume
+// os.Rename failure was returned verbatim and aborted the install, leaving the
+// fully-extracted files stranded in the temp directory while nvm reported
+// success — the root cause of issue #1357.
 func Rename(old, new string) error {
-	old_drive := filepath.VolumeName(old)
-	new_drive := filepath.VolumeName(new)
+	sameVolume := filepath.VolumeName(old) == filepath.VolumeName(new)
 
-	if old_drive == new_drive {
-		return os.Rename(old, new)
+	// Fast path: a real rename is only possible within a single volume.
+	if sameVolume {
+		var err error
+		for _, backoff := range []time.Duration{0, 1, 2, 4} {
+			if backoff > 0 {
+				time.Sleep(backoff * time.Second)
+			}
+			if err = os.Rename(old, new); err == nil {
+				return nil
+			}
+		}
+		// The rename kept failing even though both paths are on the same
+		// volume. Fall through to copy + remove rather than aborting.
 	}
 
+	return copyThenRemove(old, new)
+}
+
+// copyThenRemove recursively copies old to new and then deletes old. It is used
+// both for cross-volume moves and as a fallback when an in-volume rename fails.
+func copyThenRemove(old, new string) error {
 	// Get file or directory info
 	info, err := os.Stat(old)
 	if err != nil {
