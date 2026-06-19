@@ -285,9 +285,17 @@ func GetNodeJS(root string, v string, a string, append bool) bool {
 
 				zip := root + "\\v" + v + "\\" + strings.Replace(filepath.Base(url), ".zip", "", 1)
 				utility.DebugLogf("moving %v to %v", zip, root+"\\v"+v)
-				err = fs.Move(zip, root+"\\v"+v, true)
+				// Lift the extracted files out of the nested "node-vX-win-arch" folder
+				// into the version root. Do NOT ignore errors here: if a file fails to
+				// move (e.g. out of disk space, locked by antivirus, permission issue)
+				// we must surface it, otherwise the RemoveAll below would silently
+				// delete the un-moved files while the caller still reports a successful
+				// install (see issue #1357).
+				err = fs.Move(zip, root+"\\v"+v, false)
 				if err != nil {
-					fmt.Println("ERROR moving file: " + err.Error())
+					fmt.Println("Error extracting from Node archive (failed to move files into place): " + err.Error())
+					os.RemoveAll(root + "\\v" + v)
+					return false
 				}
 				utility.DebugLog("move succeeded")
 
@@ -306,6 +314,16 @@ func GetNodeJS(root string, v string, a string, append bool) bool {
 						utility.DebugLog(string(out))
 					}
 				})
+
+				// Verify the extraction actually produced a usable node binary before
+				// declaring success. Without this, a partial/blocked extraction is
+				// reported as "Complete" and the user ends up with an empty version
+				// directory (issue #1357).
+				if !file.Exists(root + "\\v" + v + "\\node.exe") {
+					fmt.Println("Error: extraction completed but node.exe is missing. The download may be corrupt or extraction was blocked.")
+					os.RemoveAll(root + "\\v" + v)
+					return false
+				}
 			}
 			fmt.Println("Complete")
 			return true

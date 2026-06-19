@@ -412,6 +412,16 @@ func rollback(version string) error {
 			writeToErrorLog(err)
 			return fmt.Errorf("Error rolling back node v%s installation: %v.", version, err)
 		}
+
+		// Nothing to roll back - the version directory was never created.
+		return nil
+	}
+
+	// Remove the partially-installed version directory so a failed or canceled
+	// install doesn't leave a broken version behind for `nvm use` to pick up.
+	if err := os.RemoveAll(p); err != nil {
+		writeToErrorLog(err)
+		return fmt.Errorf("Error rolling back node v%s installation: %v.", version, err)
 	}
 
 	return nil
@@ -712,7 +722,8 @@ func install(version string, cpuarch string) {
 			if file.Exists(filepath.Join(root, "v"+version, "node_modules", "npm")) {
 				utility.DebugLogf("move %v to %v", filepath.Join(root, "v"+version), filepath.Join(env.root, "v"+version))
 				if rnerr := utility.Rename(filepath.Join(root, "v"+version), filepath.Join(env.root, "v"+version)); rnerr != nil {
-					status <- Status{Err: err}
+					status <- Status{Err: fmt.Errorf("failed to move node v%s into %s: %v", version, env.root, rnerr)}
+					return
 				}
 				utility.DebugFn(func() {
 					utility.DebugLogf("env root: %v", env.root)
@@ -733,6 +744,12 @@ func install(version string, cpuarch string) {
 					npmv := getNpmVersion(version)
 					status <- Status{Text: fmt.Sprintf("npm v%s installed successfully.\n\nIf you want to use this version, type\n\nnvm use %s", npmv, version), Done: true}
 				}
+
+				// npm was bundled with the Node.js archive and is already in place.
+				// Return here so we don't fall through into the standalone-npm
+				// download path below, which operates on the temp directory that
+				// was just moved out from under us.
+				return
 			}
 
 			// If successful, add npm
