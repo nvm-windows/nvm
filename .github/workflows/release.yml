@@ -329,7 +329,7 @@ jobs:
       shell: pwsh
 
     - name: Attestation
-      uses: actions/attest-build-provenance@v2
+      uses: actions/attest-build-provenance@v4
       id: attest
       with:
         subject-path: |
