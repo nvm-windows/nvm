@@ -75,7 +75,7 @@ jobs:
         echo "NOTES=$notes" >> $GITHUB_OUTPUT
 
     - name: Update release body
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ steps.get_latest_release.outputs.tag }}
         body: |

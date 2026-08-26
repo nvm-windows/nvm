@@ -340,7 +340,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       if: success()
       with:
         tag_name: ${{ env.TAG }}
@@ -354,7 +354,7 @@ jobs:
 
     - name: Add Attestation Report to Release Notes
       if: success()
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ env.TAG }}
         body: |
