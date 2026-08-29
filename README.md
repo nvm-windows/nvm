@@ -6,7 +6,7 @@
 
 # <sub><img src="https://github.com/nvm-windows.png?s=50" width="32" align="bottom" /></sub> NVM for Windows
 
-The <a href="https://docs.microsoft.com/en-us/windows/nodejs/setup-on-windows">Microsoft</a>/<a href="https://docs.npmjs.com/cli/v9/configuring-npm/install#windows-node-version-managers">npm</a>/<a href="https://cloud.google.com/nodejs/docs/setup#installing_nvm">Google</a> recommended Node.js version manager for millions of Windows developers.
+The <a href="https://docs.microsoft.com/en-us/windows/nodejs/setup-on-windows">Microsoft</a>/<a href="https://cloud.google.com/nodejs/docs/setup#installing_nvm">Google</a> recommended Node.js version manager for millions of Windows developers.
 
 <details>
 <summary><b>NVM for Windows is not the same thing as nvm!</b> (expand for details)</summary>
@@ -14,7 +14,7 @@ The <a href="https://docs.microsoft.com/en-us/windows/nodejs/setup-on-windows">M
 _The original [nvm](https://github.com/nvm-sh/nvm) is a completely separate project for Mac/Linux only._ This project uses an entirely different philosophy and is not just a clone of nvm.
 </details>
 
-[![Download Latest Now](https://img.shields.io/badge/-Try%20v2%20RC-%2322A6F2)](https://github.com/nvm-windows/nvm/releases) [![Latest](https://img.shields.io/github/v/tag/nvm-windows/nvm?label=Latest%20Stable&style=social&x=1)](https://github.com/nvm-windows/nvm/releases) ![Downloads](https://img.shields.io/github/downloads/nvm-windows/nvm/total?label=Downloads&style=social) [![Twitter URL](https://img.shields.io/twitter/url?style=social&url=https%3A%2F%2Ftwitter.com%2Fintent%2Ftweet%3Fhashtags%3Dnodejs%26original_referer%3Dhttp%253A%252F%252F127.0.0.1%253A91%252F%26text%3DNVM%2520for%2520Windows%2520v2%2520is%2520available%21%26tw_p%3Dtweetbutton%26url%3Dhttps%253A%252F%252Fnvm-windows.com)](https://twitter.com/intent/tweet?hashtags=nodejs&original_referer=http%3A%2F%2F127.0.0.1%3A91%2F&text=NVM%20for%20Windows%20v2%20is%20available.&tw_p=tweetbutton&url=https%3A%2F%2Fnvm-windows.com)
+[![Download Latest Now](https://img.shields.io/badge/-Try%20v2%20RC%201-%2322A6F2)](https://github.com/nvm-windows/nvm/releases) [![Latest](https://img.shields.io/github/v/tag/nvm-windows/nvm?label=Latest%20Stable&style=social&x=1)](https://github.com/nvm-windows/nvm/releases) ![Downloads](https://img.shields.io/github/downloads/nvm-windows/nvm/total?label=Downloads&style=social) [![Twitter URL](https://img.shields.io/twitter/url?style=social&url=https%3A%2F%2Ftwitter.com%2Fintent%2Ftweet%3Fhashtags%3Dnodejs%26original_referer%3Dhttp%253A%252F%252F127.0.0.1%253A91%252F%26text%3DNVM%2520for%2520Windows%2520v2%2520is%2520available%21%26tw_p%3Dtweetbutton%26url%3Dhttps%253A%252F%252Fnvm-windows.com)](https://twitter.com/intent/tweet?hashtags=nodejs&original_referer=http%3A%2F%2F127.0.0.1%3A91%2F&text=NVM%20for%20Windows%20v2%20is%20available.&tw_p=tweetbutton&url=https%3A%2F%2Fnvm-windows.com)
 
 ## Resources
 
