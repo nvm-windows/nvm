@@ -28,7 +28,7 @@ _The original [nvm](https://github.com/nvm-sh/nvm) is a completely separate proj
 |:-|:-|
 |Compatibility<br/><br/><br/>|&bull; No mandatory administrator privileges.<br/>&bull; Shim mode - no symlinks, fast (written in Zig).<br/>&bull; Link mode - Zero-latency, junctions with symlink fallback.|
 |Automation<br/><br/><br/>|&bull; Per-directory version switching (pinning).<br/>&bull; Auto-install missing versions.<br/>&bull; Auto-install default global modules.|
-|Speed<br/><br/><br/><br/>|&bull; Parallel (multiple) simultaneous installations.<br/>&bull; Smaller download sources (7z).<br/>&bull; Native extraction.<br/>&bull; Caching.|
+|Speed<br/><br/><br/><br/>|&bull; Parallel (multiple) simultaneous installations.<br/>&bull; Smaller downloads (7z).<br/>&bull; Native extraction.<br/>&bull; Caching.|
 |Native&nbsp;Integrations<br/><br/><br/><br/>|&bull; Windows Apps<br/>&bull; Logging (Windows Event Viewer)<br/>&bull; Windows Registry<br/>&bull; Desktop Notification Center|
 |Customization<br/><br/><br/>|&bull; User-defined aliases.<br/>&bull; User-defined default global modules.<br/>&bull; Configure local (air-gapped) downloads.|
 
@@ -38,7 +38,7 @@ Commercial **[Certified Builds](https://docs.nvm-windows.com/guide/builds/)** ar
 
 |Feature|Description|
 |:-|:-|
-|Code-Signing<br/><br/>|&bull; Installers<br />&bull; Executables|
+|Code Signing<br/><br/>|&bull; Installers<br />&bull; Executables|
 |Installers<br/><br/>|&bull; MSI/MST<br />&bull; Microsoft Intune|
 |Advanced Logging ⭐<br/><br/><br/><br/>|&bull; Fully auditable<br />&bull; Structured<br />&bull; Dedicated Event Source<br />&bull; Native SIEM integration|
 |Policy Enforcement ⭐<br/><br/><br/><br/><br/>|&bull; Active Directory/Entra integration<br/>&bull; Restrict Node.js versions/ranges (e.g. no EOL versions, LTS only, etc.)<br/>&bull; Control nvm-windows, Node/npm/npx settings<br/>&bull; Advanced proxy (IWA, WPAD/PAC) support<br />&bull; Private Node.js download mirror|
@@ -48,7 +48,7 @@ Commercial **[Certified Builds](https://docs.nvm-windows.com/guide/builds/)** ar
 
 ## :pray: Thanks
 
-Thanks to everyone who has submitted issues on and off Github, made suggestions, and generally helped make this a better project. Special thanks to
+Thanks to everyone who has submitted issues on and off GitHub, made suggestions, and generally helped make this a better project. Special thanks to
 
 - [@vkbansal](https://github.com/vkbansal), who provided significant early feedback throughout the early releases.
 - [@rainabba](https://github.com/rainabba) and [@sullivanpt](https://github.com/sullivanpt) for getting Node v4 support integrated.
