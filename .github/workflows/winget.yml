@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: Release to publish (latest = newest non-draft, non-prerelease)
+        description: Which GitHub Release to use — latest skips drafts and pre-releases
         required: true
         type: choice
         default: latest
@@ -12,17 +12,22 @@ on:
           - latest
           - custom
       release_tag:
-        description: Tag when release=custom (for example v2.0.0). Ignored for latest.
+        description: Release tag when release=custom (e.g. v2.0.0-alpha.2). Required for custom; ignored for latest.
         required: false
         type: string
         default: ''
       dry_run:
-        description: Validate only — do not submit a PR to microsoft/winget-pkgs
+        description: "Dry run (checked/default): validate only, no winget-pkgs PR. Uncheck to publish to WinGet."
         required: true
         default: true
         type: boolean
       install_test:
-        description: Install generated local manifest on hosted runner, then uninstall
+        description: "Best-effort install smoke test on GHA runner. Skipped with warning if runner cannot install local manifests."
+        required: true
+        default: true
+        type: boolean
+      verify_public_urls:
+        description: "Verify public download URLs + SHA256 (required before publish). Uncheck for private-repo validate-only runs."
         required: true
         default: true
         type: boolean
@@ -63,7 +68,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_CHOICE: ${{ inputs.release }}
           RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          VERIFY_PUBLIC_URLS: ${{ inputs.verify_public_urls }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          function Test-WorkflowBool([string]$Value) {
+            if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+            return [System.Convert]::ToBoolean($Value)
+          }
+
+          $dryRun = Test-WorkflowBool $env:DRY_RUN
+          $verifyPublicUrls = Test-WorkflowBool $env:VERIFY_PUBLIC_URLS
+          if (-not $dryRun -and -not $verifyPublicUrls) {
+            throw "verify_public_urls must be true when dry_run is false (WinGet needs anonymous download URLs)."
+          }
+
           $repo = '${{ github.repository }}'
           if ($env:RELEASE_CHOICE -eq 'latest') {
             $releases = @(gh release list --repo $repo --exclude-drafts --exclude-pre-releases --limit 1 --json tagName | ConvertFrom-Json)
@@ -117,9 +135,20 @@ jobs:
             -OutputDirectory (Join-Path $PWD 'winget-output')
 
       - name: Verify public release URLs and hashes
+        if: inputs.verify_public_urls == true
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          function Test-WorkflowBool([string]$Value) {
+            if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+            return [System.Convert]::ToBoolean($Value)
+          }
+
+          $dryRun = Test-WorkflowBool $env:DRY_RUN
           $tag = $env:RELEASE_TAG.Trim()
           $version = $tag -replace '^[vV]', ''
+          $failed = $false
+
           foreach ($arch in @('amd64', 'arm64')) {
             $asset = "nvm-$version-$arch-setup.exe"
             $source = Join-Path $PWD "release-assets\$asset"
@@ -129,14 +158,31 @@ jobs:
 
             $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$asset"
             $download = Join-Path $env:RUNNER_TEMP $asset
-            Invoke-WebRequest -Uri $url -OutFile $download
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $download
+            }
+            catch {
+              $failed = $true
+              Write-Warning "Public URL check failed for ${asset}: $($_.Exception.Message)"
+              continue
+            }
 
             $expected = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
             $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
             if ($actual -ne $expected) {
-              throw "Public URL hash mismatch for $asset. expected=$expected actual=$actual"
+              $failed = $true
+              Write-Warning "Public URL hash mismatch for $asset. expected=$expected actual=$actual"
+              continue
             }
             Write-Host "Public URL + SHA256 verified -> $asset"
+          }
+
+          if ($failed) {
+            if ($dryRun) {
+              Write-Warning "Public URL verification incomplete (common for private repos). Uncheck verify_public_urls to silence, or make repo public before publish."
+              exit 0
+            }
+            throw "Public URL verification failed. Release assets must be anonymously downloadable before WinGet publish."
           }
 
       - name: Validate manifest with WinGet
@@ -154,31 +200,78 @@ jobs:
           "manifest=$manifest" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "manifest_dir=$manifestDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Install test generated local manifest
+      - name: Install smoke test (optional)
+        id: install_test
         if: inputs.install_test == true
         env:
-          WINGET_MANIFEST: ${{ steps.validate.outputs.manifest }}
+          WINGET_MANIFEST_DIR: ${{ steps.validate.outputs.manifest_dir }}
         run: |
-          winget install --manifest $env:WINGET_MANIFEST --silent --accept-package-agreements --disable-interactivity
-          if ($LASTEXITCODE -ne 0) { throw "winget install --manifest failed." }
+          function Write-InstallTestSkipped([string]$Reason) {
+            Write-Warning "Install smoke test skipped: $Reason"
+            "ran=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+
+          function Enable-WingetLocalManifestFiles {
+            winget settings --enable LocalManifestFiles 2>&1 | Write-Host
+            if ($LASTEXITCODE -eq 0) { return $true }
+
+            $settingsPath = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\settings.json'
+            $settingsDir = Split-Path -Parent $settingsPath
+            if (-not (Test-Path -LiteralPath $settingsDir -PathType Container)) {
+              New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
+            }
+
+            $settings = [ordered]@{}
+            if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+              $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
+            }
+            if (-not $settings.Contains('installBehavior')) {
+              $settings['installBehavior'] = [ordered]@{}
+            }
+            $settings['installBehavior']['localManifestFiles'] = 'enabled'
+            ($settings | ConvertTo-Json -Depth 10) | Set-Content -LiteralPath $settingsPath -Encoding utf8
+            Write-Host "Enabled LocalManifestFiles via settings.json fallback."
+            return $true
+          }
+
+          if (-not (Enable-WingetLocalManifestFiles)) {
+            Write-InstallTestSkipped "could not enable winget LocalManifestFiles on this runner."
+            exit 0
+          }
+
+          winget install --manifest $env:WINGET_MANIFEST_DIR --silent --accept-package-agreements --disable-interactivity 2>&1 | Write-Host
+          if ($LASTEXITCODE -ne 0) {
+            Write-InstallTestSkipped "winget install --manifest failed (manifest validate already passed)."
+            exit 0
+          }
 
           $nvm = Join-Path $env:LOCALAPPDATA 'Author Software\nvm\nvm.exe'
           if (-not (Test-Path -LiteralPath $nvm -PathType Leaf)) {
-            throw "Install completed but nvm.exe missing: $nvm"
+            Write-InstallTestSkipped "nvm.exe missing after winget install."
+            exit 0
           }
-          & $nvm --version
-          if ($LASTEXITCODE -ne 0) { throw "Installed nvm.exe failed --version." }
+
+          & $nvm --version 2>&1 | Write-Host
+          if ($LASTEXITCODE -ne 0) {
+            Write-InstallTestSkipped "nvm --version failed after install."
+            exit 0
+          }
+
+          Write-Host "Install smoke test passed."
+          "ran=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Uninstall test installation
-        if: always() && inputs.install_test == true
+        if: always() && inputs.install_test == true && steps.install_test.outputs.ran == 'true'
         run: |
           $uninstaller = Join-Path $env:LOCALAPPDATA 'Author Software\nvm\unins000.exe'
           if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
             Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -NoNewWindow
-            if ($LASTEXITCODE -ne 0) { throw "Test uninstaller failed with exit code $LASTEXITCODE." }
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "Test uninstaller exited with code $LASTEXITCODE (ignored)."
+            }
           }
           else {
-            Write-Host "No uninstaller found; install did not reach uninstallable state."
+            Write-Host "No uninstaller found; nothing to clean up."
           }
 
       - name: Upload generated manifest

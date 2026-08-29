@@ -79,10 +79,11 @@ Inputs:
 
 | Input | Default | Purpose |
 |-------|---------|---------|
-| `release` | `latest` | Dropdown: `latest` (newest non-draft/non-prerelease) or `custom` |
-| `release_tag` | empty | Required when `release=custom` (e.g. `v2.0.0`); ignored for `latest` |
-| `dry_run` | true | Validate only; skip winget-pkgs PR |
-| `install_test` | true | Run local-manifest install/uninstall test on the hosted x64 runner |
+| `release` | `latest` | `latest` = newest stable GitHub Release (no drafts/pre-releases). `custom` = use `release_tag`. |
+| `release_tag` | empty | Tag for `custom` (e.g. `v2.0.0-alpha.2`). Ignored when `release=latest`. |
+| `dry_run` | true | **On:** generate manifest, `winget validate`, upload artifact — no PR. **Off:** submit to `microsoft/winget-pkgs` (public repo + `WINGET_CREATE_GITHUB_TOKEN`). |
+| `install_test` | true | Best-effort install smoke test on GHA runner. Warns and skips if LocalManifestFiles unavailable; does not fail dry-run. |
+| `verify_public_urls` | true | Anonymous download + SHA256 (proves WinGet URLs work). **Off** for private-repo dry-run. On dry-run, failures warn instead of fail. **On** required before live submit. |
 
 ### Secrets
 
