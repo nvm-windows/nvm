@@ -1,16 +1,25 @@
-# <img src="https://github.com/nvm-windows.png?s=50" width="24" style="display: flex; align-items: center;"/> NVM for Windows
+<a href="https://trendshift.io/repositories/4201" target="_blank"><img src="https://trendshift.io/api/badge/repositories/4201" alt="coreybutler%2Fnvm-windows | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-The trusted Node.js version manager for millions of Windows developers (since 2014).
+> [!IMPORTANT]
+> ### Version 2 is now available!<br />
+> NVM for Windows has been fully rewritten for modern workflows. There are significant changes from v1, as listed below and in the [docs](https://docs.nvm-windows.com).
 
-<div align="">
-  <a href="https://trendshift.io/repositories/4201" target="_blank"><img src="https://trendshift.io/api/badge/repositories/4201" alt="coreybutler%2Fnvm-windows | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-  <br/>
-</div>
+# <sub><img src="https://github.com/nvm-windows.png?s=50" width="32" align="bottom" /></sub> NVM for Windows
 
-[![Download Latest Now](https://img.shields.io/badge/-Install%20Now-%2322A6F2)](https://github.com/nvm-windows/nvm/releases) [![Latest](https://img.shields.io/github/v/tag/nvm-windows/nvm?label=Latest%20Release&style=social&x=1)]((https://github.com/nvm-windows/app/releases)) ![Downloads](https://img.shields.io/github/downloads/nvm-windows/nvm/total?label=Downloads&style=social)
+The <a href="https://docs.microsoft.com/en-us/windows/nodejs/setup-on-windows">Microsoft</a>/<a href="https://docs.npmjs.com/cli/v9/configuring-npm/install#windows-node-version-managers">npm</a>/<a href="https://cloud.google.com/nodejs/docs/setup#installing_nvm">Google</a> recommended Node.js version manager for millions of Windows developers.
+
+<details>
+<summary><b>NVM for Windows is not the same thing as nvm!</b> (expand for details)</summary>
+
+_The original [nvm](https://github.com/nvm-sh/nvm) is a completely separate project for Mac/Linux only._ This project uses an entirely different philosophy and is not just a clone of nvm.
+</details>
+
+[![Download Latest Now](https://img.shields.io/badge/-Install%20Now-%2322A6F2)](https://github.com/nvm-windows/nvm/releases) [![Latest](https://img.shields.io/github/v/tag/nvm-windows/nvm?label=Latest%20Release&style=social&x=1)]((https://github.com/nvm-windows/app/releases)) ![Downloads](https://img.shields.io/github/downloads/nvm-windows/nvm/total?label=Downloads&style=social) [![Twitter URL](https://img.shields.io/twitter/url?style=social&url=https%3A%2F%2Ftwitter.com%2Fintent%2Ftweet%3Fhashtags%3Dnodejs%26original_referer%3Dhttp%253A%252F%252F127.0.0.1%253A91%252F%26text%3DNVM%2520for%2520Windows%2520v2%2520is%2520available%21%26tw_p%3Dtweetbutton%26url%3Dhttps%253A%252F%252Fnvm-windows.com)](https://twitter.com/intent/tweet?hashtags=nodejs&original_referer=http%3A%2F%2F127.0.0.1%3A91%2F&text=NVM%20for%20Windows%20v2%20is%20available.&tw_p=tweetbutton&url=https%3A%2F%2Fnvm-windows.com)
 
 > [!TIP]
-> NVM for Windows v2 is available as a **[certified build]()** for regulated organizations.
+> **Coming in September 2026**<br />
+> NVM for Windows v2 will be available as a **[certified build](https://docs.nvm-windows.com/guide/builds/)** for controlled environments.<br />
+> <a href="https://list.author.sh/subscription/form" target="_blank">Get notified</a>
 
 ## Resources
 
@@ -22,16 +31,34 @@ The trusted Node.js version manager for millions of Windows developers (since 20
 
 |Feature|Description|
 |:-|:-|
-|Automation<br/><br/><br/>|- Per-directory version switching.<br/>- Auto-install missing versions.<br/>- Auto-install default global modules.|
-|Speed<br/><br/><br/><br/><br/><br/>|- Parallel (mutliple) simultaneous installations.<br/>- Smaller download sources (7z).<br/>- Native extraction.<br/>- Caching.<br/>- Lightweight shims (zig).<br/>- Zero-latency link mode.|
-|Native&nbsp;Integrations<br/><br/><br/><br/>|- Windows Apps<br/>- Windows Event Viewer<br/>- Windows Registry<br/>- Desktop Notification Center|
-|Customization<br/><br/><br/>|- User-defined aliases.<br/>- User-defined default global modules.<br/>- Configure local (airgapped) downloads.|
+|Automation<br/><br/><br/>|&bull; Per-directory version switching (pinning).<br/>&bull; Auto-install missing versions.<br/>&bull; Auto-install default global modules.|
+|Speed<br/><br/><br/><br/><br/><br/>|&bull; Parallel (mutliple) simultaneous installations.<br/>&bull; Smaller download sources (7z).<br/>&bull; Native extraction.<br/>&bull; Caching.<br/>&bull; Lightweight shims (zig).<br/>&bull; Zero-latency link mode.|
+|Native&nbsp;Integrations<br/><br/><br/><br/>|&bull; Windows Apps<br/>&bull; Logging (Windows Event Viewer)<br/>&bull; Windows Registry<br/>&bull; Desktop Notification Center|
+|Customization<br/><br/><br/>|&bull; User-defined aliases.<br/>&bull; User-defined default global modules.<br/>&bull; Configure local (airgapped) downloads.|
 
 ### Certified Builds
 
-All of the features above, plus:
+_Commercial options coming in September 2026._
 
 |Feature|Description|
 |:-|:-|
-|Auditing|- Fully auditable, native logging.|
-|Policy Enforcement<br/><br/><br/><br/>|- Active Directory/Entra integration.<br/>- Restrict Node.js Versions (ex: no EOL versions).<br/>- Control nvm-windows settings.<br/>- Advanced proxy (IWA) support.|
+|Code-Signing<br/><br/>|&bull; Installers<br />&bull; Executables|
+|Installers<br/><br/>|&bull; MSI/MST<br />&bull; Microsoft Intune|
+|Advanced Logging ⭐<br/><br/><br/><br/>|&bull; Fully auditable<br />&bull; Structured<br />&bull; Dedicated Event Source<br />&bull; Native SIEM integration|
+|Policy Enforcement ⭐<br/><br/><br/><br/><br/>|&bull; Active Directory/Entra integration<br/>&bull; Restrict Node.js versions/ranges (e.g. no EOL versions, LTS only, etc.)<br/>&bull; Control nvm-windows, Node/npm/npx settings<br/>&bull; Advanced proxy (IWA, WPAD/PAC) support<br />&bull; Private Node.js download mirror|
+|Trust Artifacts ⭐<br/><br/><br/>|&bull; SBOM<br />&bull; SLSA Provenance<br />&bull; VEX Reports|
+
+⭐ = Add-on package
+
+## :pray: Thanks
+
+Thanks to everyone who has submitted issues on and off Github, made suggestions, and generally helped make this a better project. Special thanks to
+
+- [@vkbansal](https://github.com/vkbansal), who provided significant early feedback throughout the early releases.
+- [@rainabba](https://github.com/rainabba) and [@sullivanpt](https://github.com/sullivanpt) for getting Node v4 support integrated.
+- [@s-h-a-d-o-w](https://github.com/s-h-a-d-o-w) who resolved the longstanding space escaping issue in path names ([#355](https://github.com/nvm-windows/nvm/pull/355)).
+- [ajyong](https://github.com/ajyong) who sponsored the code signing certificate in late 2021.
+
+<br/>
+
+![Contributors](https://contrib.rocks/image?repo=nvm-windows/nvm&max=100)

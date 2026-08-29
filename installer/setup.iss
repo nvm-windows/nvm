@@ -1446,7 +1446,6 @@ begin
   WizardDefaultAutoDetect := True;
   WizardDefaultAutoInstall := False;
   WizardDefaultAutoInstallPrompt := False;
-  // Secure by default: require valid TLS (AllowInsecureDownloads=0).
   WizardDefaultRequireTls := True;
 end;
 
@@ -1465,9 +1464,7 @@ begin
   WizardDefaultAutoDetect := ReadRegistryDwordBool('AutoUse', WizardDefaultAutoDetect);
   WizardDefaultAutoInstall := ReadRegistryDwordBool('AutoInstall', WizardDefaultAutoInstall);
   WizardDefaultAutoInstallPrompt := ReadRegistryDwordBool('AutoInstallPrompt', WizardDefaultAutoInstallPrompt);
-  // Missing AllowInsecureDownloads → treat as False → RequireTls stays True.
-  if RegValueExists(HKCU, '{#RegistryKey}', 'AllowInsecureDownloads') then
-    WizardDefaultRequireTls := not ReadRegistryDwordBool('AllowInsecureDownloads', False);
+  WizardDefaultRequireTls := not ReadRegistryDwordBool('AllowInsecureDownloads', not WizardDefaultRequireTls);
 
   if not WizardDefaultAutoInstall then
     WizardDefaultAutoInstallPrompt := False;
@@ -2022,7 +2019,6 @@ end;
 
 function GetAllowInsecureDownloadsRegistryValue(Param: String): String;
 begin
-  // Default secure when wizard page missing (silent) or TLS required is checked.
   Result := '0';
   if (PreferencesPage <> nil) and not PreferencesPage.Values[4] then
     Result := '1';
@@ -2282,8 +2278,6 @@ begin
   PreferencesPage.Values[2] := WizardDefaultAutoInstall;
   PreferencesPage.Values[3] := WizardDefaultAutoInstallPrompt;
   PreferencesPage.Values[4] := WizardDefaultRequireTls;
-  // Belt-and-suspenders: some Inno builds desync Values vs Checked on non-exclusive pages.
-  PreferencesPage.CheckListBox.Checked[4] := WizardDefaultRequireTls;
   PreferencesPage.CheckListBox.ItemEnabled[3] := WizardDefaultAutoInstall;
   PreferencesPage.CheckListBox.OnClickCheck := @PreferencesCheckChanged;
 
