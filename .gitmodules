@@ -1,0 +1,12 @@
+[submodule "common"]
+	path = common
+	url = git@github.com:nvm-windows/common.git
+[submodule "cli"]
+	path = cli
+	url = git@github.com:nvm-windows/cli.git
+[submodule "sync"]
+	path = sync
+	url = git@github.com:nvm-windows/sync.git
+[submodule "shim"]
+	path = shim
+	url = git@github.com:nvm-windows/shim.git

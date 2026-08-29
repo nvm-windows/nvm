@@ -1,0 +1,210 @@
+name: Publish to WinGet
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Release to publish (latest = newest non-draft, non-prerelease)
+        required: true
+        type: choice
+        default: latest
+        options:
+          - latest
+          - custom
+      release_tag:
+        description: Tag when release=custom (for example v2.0.0). Ignored for latest.
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        description: Validate only — do not submit a PR to microsoft/winget-pkgs
+        required: true
+        default: true
+        type: boolean
+      install_test:
+        description: Install generated local manifest on hosted runner, then uninstall
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: winget-${{ github.repository }}-${{ inputs.release }}-${{ inputs.release_tag }}-${{ inputs.dry_run }}
+  cancel-in-progress: false
+
+env:
+  WINGET_PACKAGE_IDENTIFIER: AuthorSoftware.NVMforWindows
+
+jobs:
+  validate:
+    name: Generate and validate manifest
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      manifest_dir: ${{ steps.validate.outputs.manifest_dir }}
+    steps:
+      - name: Checkout manifest generator
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            build/steps/New-WingetManifest.ps1
+            LICENSE
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve release tag
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_CHOICE: ${{ inputs.release }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          $repo = '${{ github.repository }}'
+          if ($env:RELEASE_CHOICE -eq 'latest') {
+            $releases = @(gh release list --repo $repo --exclude-drafts --exclude-pre-releases --limit 1 --json tagName | ConvertFrom-Json)
+            if ($releases.Count -lt 1 -or [string]::IsNullOrWhiteSpace([string]$releases[0].tagName)) {
+              throw "No non-draft, non-prerelease GitHub Release found in $repo."
+            }
+            $tag = [string]$releases[0].tagName
+            Write-Host "Resolved latest release tag -> $tag"
+          }
+          else {
+            $tag = [string]($env:RELEASE_TAG_INPUT).Trim()
+            if ([string]::IsNullOrWhiteSpace($tag)) {
+              throw "release=custom requires release_tag (for example v2.0.0)."
+            }
+          }
+
+          if ($tag -notmatch '^v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+            throw "release tag must be SemVer, optionally prefixed with v: $tag"
+          }
+          gh release view $tag --repo $repo --json tagName,isDraft,isPrerelease,assets
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release not found: $tag" }
+
+          $version = $tag -replace '^[vV]', ''
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download released installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          gh release download $env:RELEASE_TAG `
+            --repo "${{ github.repository }}" `
+            --pattern 'nvm-*-setup.exe' `
+            --dir release-assets `
+            --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Failed to download release installers." }
+          Get-ChildItem -LiteralPath release-assets -File | ForEach-Object {
+            Write-Host "release asset -> $($_.Name) ($($_.Length) bytes)"
+          }
+
+      - name: Generate WinGet manifest
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          & .\build\steps\New-WingetManifest.ps1 `
+            -ReleaseTag $env:RELEASE_TAG `
+            -Repository $env:REPOSITORY `
+            -InstallerDirectory (Join-Path $PWD 'release-assets') `
+            -OutputDirectory (Join-Path $PWD 'winget-output')
+
+      - name: Verify public release URLs and hashes
+        run: |
+          $tag = $env:RELEASE_TAG.Trim()
+          $version = $tag -replace '^[vV]', ''
+          foreach ($arch in @('amd64', 'arm64')) {
+            $asset = "nvm-$version-$arch-setup.exe"
+            $source = Join-Path $PWD "release-assets\$asset"
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw "Expected downloaded asset missing: $source"
+            }
+
+            $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$asset"
+            $download = Join-Path $env:RUNNER_TEMP $asset
+            Invoke-WebRequest -Uri $url -OutFile $download
+
+            $expected = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+            $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
+            if ($actual -ne $expected) {
+              throw "Public URL hash mismatch for $asset. expected=$expected actual=$actual"
+            }
+            Write-Host "Public URL + SHA256 verified -> $asset"
+          }
+
+      - name: Validate manifest with WinGet
+        id: validate
+        run: |
+          $version = ($env:RELEASE_TAG.Trim() -replace '^[vV]', '')
+          $manifestDir = Join-Path $PWD "winget-output\manifests\a\AuthorSoftware\NVMforWindows\$version"
+          $manifest = Join-Path $manifestDir "$env:WINGET_PACKAGE_IDENTIFIER.yaml"
+          if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+            throw "Version manifest missing: $manifest"
+          }
+          winget --version
+          winget validate --manifest $manifestDir --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw "winget validate failed." }
+          "manifest=$manifest" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "manifest_dir=$manifestDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Install test generated local manifest
+        if: inputs.install_test == true
+        env:
+          WINGET_MANIFEST: ${{ steps.validate.outputs.manifest }}
+        run: |
+          winget install --manifest $env:WINGET_MANIFEST --silent --accept-package-agreements --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw "winget install --manifest failed." }
+
+          $nvm = Join-Path $env:LOCALAPPDATA 'Author Software\nvm\nvm.exe'
+          if (-not (Test-Path -LiteralPath $nvm -PathType Leaf)) {
+            throw "Install completed but nvm.exe missing: $nvm"
+          }
+          & $nvm --version
+          if ($LASTEXITCODE -ne 0) { throw "Installed nvm.exe failed --version." }
+
+      - name: Uninstall test installation
+        if: always() && inputs.install_test == true
+        run: |
+          $uninstaller = Join-Path $env:LOCALAPPDATA 'Author Software\nvm\unins000.exe'
+          if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+            Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -NoNewWindow
+            if ($LASTEXITCODE -ne 0) { throw "Test uninstaller failed with exit code $LASTEXITCODE." }
+          }
+          else {
+            Write-Host "No uninstaller found; install did not reach uninstallable state."
+          }
+
+      - name: Upload generated manifest
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: winget-manifest-${{ steps.meta.outputs.tag || github.run_id }}
+          path: winget-output/manifests/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Submit to microsoft/winget-pkgs
+        if: inputs.dry_run == false
+        env:
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_CREATE_GITHUB_TOKEN }}
+          MANIFEST_DIR: ${{ steps.validate.outputs.manifest_dir }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINGET_CREATE_GITHUB_TOKEN)) {
+            throw "dry_run is false but secret WINGET_CREATE_GITHUB_TOKEN is empty. Set a classic PAT with public_repo on a fork of microsoft/winget-pkgs."
+          }
+
+          $wingetCreate = Join-Path $env:RUNNER_TEMP 'wingetcreate.exe'
+          Invoke-WebRequest `
+            -Uri 'https://aka.ms/wingetcreate/latest' `
+            -OutFile $wingetCreate
+
+          & $wingetCreate --info
+          & $wingetCreate submit $env:MANIFEST_DIR --no-open
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate submit failed." }

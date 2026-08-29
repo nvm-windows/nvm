@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<instrumentationManifest xmlns="http://schemas.microsoft.com/win/2004/08/events"
+                         xmlns:win="http://manifests.microsoft.com/win/2004/08/windows/events">
+  <instrumentation>
+    <events>
+      <provider name="__EVENT_PROVIDER_NAME__"
+                guid="{4c0f8d8e-2d6b-4f93-9f0f-3f0d7b4e2d11}"
+                symbol="AuthorSoftwareNVMWindowsProvider"
+                resourceFileName="__EVENT_RESOURCE_DLL_NAME__"
+                messageFileName="__EVENT_RESOURCE_DLL_NAME__">
+        <channels>
+          <channel chid="Operational"
+                   name="__EVENT_PROVIDER_CHANNEL_NAME__"
+                   symbol="OperationalChannel"
+                   type="Operational"
+                   enabled="true"
+                   isolation="Application" />
+          <channel chid="Admin"
+                   name="__EVENT_PROVIDER_CHANNEL_PREFIX__/Admin"
+                   symbol="AdminChannel"
+                   type="Admin"
+                   enabled="false"
+                   isolation="Application" />
+        </channels>
+        <keywords>
+          <keyword name="Operational" mask="0x1" symbol="OperationalKeyword" />
+          <keyword name="Execution" mask="0x2" symbol="ExecutionKeyword" />
+        </keywords>
+        <tasks>
+          <task name="CliOperational" value="1" symbol="CliOperationalTask" />
+          <task name="ShimExecution" value="2" symbol="ShimExecutionTask" />
+          <task name="ShimOperational" value="3" symbol="ShimOperationalTask" />
+          <task name="StructuredOperational" value="4" symbol="StructuredOperationalTask" />
+        </tasks>
+        <templates>
+          <template tid="OperationalTemplate">
+            <data name="Source" inType="win:UnicodeString" />
+            <data name="Message" inType="win:UnicodeString" />
+            <data name="Code" inType="win:UInt32" />
+          </template>
+          <template tid="StructuredTemplate">
+            <data name="Source" inType="win:UnicodeString" />
+            <data name="EventName" inType="win:UnicodeString" />
+            <data name="Payload" inType="win:UnicodeString" />
+            <data name="Code" inType="win:UInt32" />
+          </template>
+          <template tid="ShimExecutionTemplate">
+            <data name="RequestedCommand" inType="win:UnicodeString" />
+            <data name="ResolvedPath" inType="win:UnicodeString" />
+            <data name="NodeVersion" inType="win:UnicodeString" />
+            <data name="Arguments" inType="win:UnicodeString" />
+            <data name="WorkingDirectory" inType="win:UnicodeString" />
+          </template>
+        </templates>
+        <events>
+          <event value="100"
+                 version="0"
+                 symbol="CliOperationalInfo"
+                 level="win:Informational"
+                 channel="Operational"
+                 task="CliOperational"
+                 keywords="Operational"
+                 template="OperationalTemplate"
+                 message="$(string.CliOperationalInfo.message)" />
+          <event value="101"
+                 version="0"
+                 symbol="CliOperationalWarning"
+                 level="win:Warning"
+                 channel="Operational"
+                 task="CliOperational"
+                 keywords="Operational"
+                 template="OperationalTemplate"
+                 message="$(string.CliOperationalWarning.message)" />
+          <event value="102"
+                 version="0"
+                 symbol="CliOperationalError"
+                 level="win:Error"
+                 channel="Operational"
+                 task="CliOperational"
+                 keywords="Operational"
+                 template="OperationalTemplate"
+                 message="$(string.CliOperationalError.message)" />
+          <event value="120"
+                 version="0"
+                 symbol="StructuredOperationalInfo"
+                 level="win:Informational"
+                 channel="Operational"
+                 task="StructuredOperational"
+                 keywords="Operational"
+                 template="StructuredTemplate"
+                 message="$(string.StructuredOperationalInfo.message)" />
+          <event value="121"
+                 version="0"
+                 symbol="StructuredOperationalWarning"
+                 level="win:Warning"
+                 channel="Operational"
+                 task="StructuredOperational"
+                 keywords="Operational"
+                 template="StructuredTemplate"
+                 message="$(string.StructuredOperationalWarning.message)" />
+          <event value="122"
+                 version="0"
+                 symbol="StructuredOperationalError"
+                 level="win:Error"
+                 channel="Operational"
+                 task="StructuredOperational"
+                 keywords="Operational"
+                 template="StructuredTemplate"
+                 message="$(string.StructuredOperationalError.message)" />
+          <event value="200"
+                 version="0"
+                 symbol="ShimExecution"
+                 level="win:Informational"
+                 channel="Operational"
+                 task="ShimExecution"
+                 keywords="Execution"
+                 template="ShimExecutionTemplate"
+                 message="$(string.ShimExecution.message)" />
+          <event value="210"
+                 version="0"
+                 symbol="ShimOperationalInfo"
+                 level="win:Informational"
+                 channel="Operational"
+                 task="ShimOperational"
+                 keywords="Operational"
+                 template="OperationalTemplate"
+                 message="$(string.ShimOperationalInfo.message)" />
+          <event value="211"
+                 version="0"
+                 symbol="ShimOperationalWarning"
+                 level="win:Warning"
+                 channel="Operational"
+                 task="ShimOperational"
+                 keywords="Operational"
+                 template="OperationalTemplate"
+                 message="$(string.ShimOperationalWarning.message)" />
+          <event value="212"
+                 version="0"
+                 symbol="ShimOperationalError"
+                 level="win:Error"
+                 channel="Operational"
+                 task="ShimOperational"
+                 keywords="Operational"
+                 template="OperationalTemplate"
+                 message="$(string.ShimOperationalError.message)" />
+        </events>
+      </provider>
+    </events>
+  </instrumentation>
+  <localization>
+    <resources culture="en-US">
+      <stringTable>
+        <string id="Provider.DisplayName" value="__EVENT_PROVIDER_ORGANIZATION__" />
+        <string id="Channel.Operational.DisplayName" value="__EVENT_PROVIDER_CHANNEL_DISPLAY_NAME__" />
+        <string id="Channel.Admin.DisplayName" value="Admin" />
+        <string id="CliOperationalInfo.message" value="[%1] %2 (code %3)" />
+        <string id="CliOperationalWarning.message" value="[%1] %2 (code %3)" />
+        <string id="CliOperationalError.message" value="[%1] %2 (code %3)" />
+        <string id="StructuredOperationalInfo.message" value="[%1] %2: %3 (code %4)" />
+        <string id="StructuredOperationalWarning.message" value="[%1] %2: %3 (code %4)" />
+        <string id="StructuredOperationalError.message" value="[%1] %2: %3 (code %4)" />
+        <string id="ShimExecution.message" value="Executed %1 via %2 (Node %3) args=%4 cwd=%5" />
+        <string id="ShimOperationalInfo.message" value="[%1] %2 (code %3)" />
+        <string id="ShimOperationalWarning.message" value="[%1] %2 (code %3)" />
+        <string id="ShimOperationalError.message" value="[%1] %2 (code %3)" />
+      </stringTable>
+    </resources>
+  </localization>
+</instrumentationManifest>

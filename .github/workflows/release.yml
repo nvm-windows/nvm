@@ -1,0 +1,410 @@
+name: Release Community Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Target architecture(s) — both land on the same GitHub Release
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - amd64
+          - arm64
+      publish_release:
+        description: Create/update GitHub Release from CLI manifest version
+        required: false
+        default: true
+        type: boolean
+      override_existing_release:
+        description: Replace existing setup.exe + sync.exe assets on that release
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  QGO_VERSION: "1.2.8"
+  INNO_SETUP_VERSION: "6.7.1"
+
+jobs:
+  prepare:
+    name: Version / release gate
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      version: ${{ steps.gate.outputs.version }}
+      tag: ${{ steps.gate.outputs.tag }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      arches: ${{ steps.matrix.outputs.arches }}
+    steps:
+      - name: Check GitHub App secrets
+        env:
+          CLIENT_ID: ${{ secrets.GH_APP_CLIENT_ID }}
+          PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CLIENT_ID)) { throw "Missing secrets.GH_APP_CLIENT_ID" }
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_KEY)) { throw "Missing secrets.GH_APP_PRIVATE_KEY (PEM)." }
+
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+          permission-metadata: read
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          submodules: false
+
+      - name: Checkout cli submodule (manifest version)
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          $owner = "${{ github.repository_owner }}"
+          $token = $env:APP_TOKEN
+          $url = "https://x-access-token:${token}@github.com/${owner}/cli.git"
+          git config -f .gitmodules "submodule.cli.url" $url
+          git config "submodule.cli.url" $url
+          git submodule sync --recursive
+          if ($LASTEXITCODE -ne 0) { throw "git submodule sync failed" }
+          git -c protocol.version=2 submodule update --init --force --depth=1 cli
+          if ($LASTEXITCODE -ne 0) { throw "git submodule update cli failed with exit code $LASTEXITCODE" }
+
+      - name: Build architecture matrix
+        id: matrix
+        env:
+          ARCH_INPUT: ${{ inputs.architecture }}
+        run: |
+          if ($env:ARCH_INPUT -eq "both") {
+            $arches = @("amd64", "arm64")
+            $matrixJson = '{"architecture":["amd64","arm64"]}'
+          }
+          else {
+            $arches = @($env:ARCH_INPUT)
+            $matrixJson = "{`"architecture`":[`"$($env:ARCH_INPUT)`"]}"
+          }
+          "matrix=$matrixJson" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "arches=$($arches -join ',')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "matrix -> $matrixJson"
+
+      - name: Resolve version / release gate
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
+          OVERRIDE_EXISTING_RELEASE: ${{ inputs.override_existing_release }}
+          ARCHES: ${{ steps.matrix.outputs.arches }}
+        run: |
+          $archList = @($env:ARCHES -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+          $gateArgs = @{
+            Mode          = "Gate"
+            Architectures = $archList
+            Enabled       = ($env:PUBLISH_RELEASE -eq "true")
+          }
+          if ($env:OVERRIDE_EXISTING_RELEASE -eq "true") {
+            $gateArgs["OverrideExisting"] = $true
+          }
+          & .\build\steps\Publish-GitHubRelease.ps1 @gateArgs
+
+  build:
+    name: Build (${{ matrix.architecture }})
+    needs: prepare
+    runs-on: ${{ matrix.architecture == 'arm64' && 'windows-11-arm' || 'windows-latest' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GOBIN: ${{ github.workspace }}\go-bin
+      ARCHITECTURE: ${{ matrix.architecture }}
+
+    steps:
+      - name: Check GitHub App secrets
+        env:
+          CLIENT_ID: ${{ secrets.GH_APP_CLIENT_ID }}
+          PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CLIENT_ID)) { throw "Missing secrets.GH_APP_CLIENT_ID" }
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_KEY)) { throw "Missing secrets.GH_APP_PRIVATE_KEY (PEM)." }
+
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.GH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+          permission-metadata: read
+
+      - name: Verify App can read submodule repos
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          $owner = "${{ github.repository_owner }}"
+          $missing = New-Object System.Collections.Generic.List[string]
+          foreach ($repo in @("nvm", "cli", "common", "shim", "sync")) {
+            Write-Host "GET repos/$owner/$repo"
+            gh api "repos/$owner/$repo" --jq .full_name
+            if ($LASTEXITCODE -ne 0) {
+              $missing.Add("$owner/$repo") | Out-Null
+            }
+          }
+          if ($missing.Count -gt 0) {
+            Write-Host "App installation cannot read: $($missing -join ', ')"
+            Write-Host "Fix: GitHub App install settings for org '$owner'"
+            Write-Host "  - Repository access: All repositories, OR"
+            Write-Host "  - Only select repositories: add nvm, cli, common, shim, sync"
+            Write-Host "  - Permissions: Contents Read"
+            throw "App missing repo access: $($missing -join ', ')"
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          submodules: false
+
+      - name: Checkout submodules
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          $owner = "${{ github.repository_owner }}"
+          $token = $env:APP_TOKEN
+          if ([string]::IsNullOrWhiteSpace($token)) {
+            throw "APP_TOKEN empty"
+          }
+
+          foreach ($name in @("cli", "common", "shim", "sync")) {
+            $url = "https://x-access-token:${token}@github.com/${owner}/${name}.git"
+            git config -f .gitmodules "submodule.${name}.url" $url
+            if ($LASTEXITCODE -ne 0) { throw "git config .gitmodules submodule.$name.url failed" }
+            git config "submodule.${name}.url" $url
+            if ($LASTEXITCODE -ne 0) { throw "git config submodule.$name.url failed" }
+            Write-Host "submodule.$name.url -> https://x-access-token:***@github.com/${owner}/${name}.git"
+          }
+
+          git submodule sync --recursive
+          if ($LASTEXITCODE -ne 0) { throw "git submodule sync failed" }
+
+          git -c protocol.version=2 submodule update --init --force --depth=1 --recursive
+          if ($LASTEXITCODE -ne 0) {
+            throw "git submodule update failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/src/go.mod
+          cache: true
+          cache-dependency-path: |
+            cli/src/go.sum
+            sync/src/go.sum
+
+      - name: Cache qgo
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.GOBIN }}
+          key: qgo-${{ runner.os }}-${{ runner.arch }}-${{ env.QGO_VERSION }}
+
+      - name: Install qgo
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:GOBIN | Out-Null
+          if (!(Test-Path "$env:GOBIN\qgo.exe")) {
+            go install github.com/quikdev/go/cmd/qgo@v$env:QGO_VERSION
+          } else {
+            Write-Host "using cached qgo binary"
+          }
+          "$env:GOBIN" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install go-winres
+        run: |
+          $cmd = Get-Command go-winres -ErrorAction SilentlyContinue
+          if ($null -ne $cmd) {
+            Write-Host "go-winres already on PATH -> $($cmd.Source)"
+          }
+          else {
+            Write-Host "Installing go-winres into GOBIN ($env:GOBIN)..."
+            New-Item -ItemType Directory -Force -Path $env:GOBIN | Out-Null
+            go install github.com/tc-hib/go-winres@latest
+            if ($LASTEXITCODE -ne 0) { throw "go install go-winres failed with exit code $LASTEXITCODE" }
+          }
+          if (-not (Test-Path (Join-Path $env:GOBIN "go-winres.exe"))) {
+            throw "go-winres.exe missing under GOBIN after install"
+          }
+          Write-Host "go-winres -> $(Join-Path $env:GOBIN 'go-winres.exe')"
+
+      - name: Resolve Zig version
+        id: zig-ver
+        run: |
+          $candidates = @(
+            (Join-Path $env:GITHUB_WORKSPACE "shim\.zigversion"),
+            (Join-Path $env:GITHUB_WORKSPACE "build\.zigversion")
+          )
+          $path = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $path) {
+            throw "No Zig version file found (tried shim/.zigversion, build/.zigversion)"
+          }
+          $version = (Get-Content -LiteralPath $path -Raw).Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "Zig version file is empty: $path"
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "source=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Zig version $version (from $path)"
+
+      - name: Set up Zig
+        id: setup-zig
+        uses: xyzzylabs/setup-zig@v1
+        with:
+          version: ${{ steps.zig-ver.outputs.version }}
+          use-cache: true
+          cache-key: shim-${{ steps.zig-ver.outputs.version }}
+
+      - name: Zig version
+        run: |
+          Write-Host "zig version (resolved) = ${{ steps.setup-zig.outputs.zig-version }}"
+          zig version
+
+      - name: Install Inno Setup
+        run: |
+          $ver = $env:INNO_SETUP_VERSION
+          $isccCandidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+          )
+          $existing = $isccCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if ($existing) {
+            Write-Host "ISCC already present -> $existing"
+            return
+          }
+          $exe = Join-Path $env:RUNNER_TEMP "innosetup-$ver.exe"
+          $url = "https://files.jrsoftware.org/is/6/innosetup-$ver.exe"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile $exe
+          Start-Process -FilePath $exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -Wait -NoNewWindow
+          $iscc = $isccCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $iscc) {
+            throw "Inno Setup $ver install did not produce ISCC.exe"
+          }
+          Write-Host "ISCC -> $iscc"
+
+      - name: Build community payload + Inno Setup
+        run: |
+          & .\build\main.ps1 -Architecture $env:ARCHITECTURE
+          if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) {
+            throw "build\main.ps1 failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Verify outputs
+        run: |
+          . .\build\common.ps1
+          $binRoot = Join-Path $env:GITHUB_WORKSPACE "bin"
+          $ctx = Initialize-NvmBuildContext -BinRoot $binRoot
+          $expected = Get-NvmExpectedExePaths -BinRoot $binRoot -Component All
+          $setup = Get-NvmInstallerSetupPath -Version $ctx.CliVersion -Architecture $env:ARCHITECTURE
+          $syncAsset = Get-NvmSyncReleaseAssetPath -Version $ctx.CliVersion -Architecture $env:ARCHITECTURE
+
+          if (-not (Test-Path -LiteralPath $syncAsset -PathType Leaf)) {
+            throw "Missing staged sync release asset: $syncAsset"
+          }
+
+          $eventAssets = Get-NvmExpectedEventProviderPaths -BinRoot $binRoot
+          foreach ($path in $eventAssets) {
+            Assert-NvmFile -Path $path -Label ([System.IO.Path]::GetFileName($path)) | Out-Null
+          }
+
+          Write-NvmBuildJobSummaryHeader `
+            -Version $ctx.CliVersion `
+            -Architecture $env:ARCHITECTURE `
+            -ZigVersion ${{ steps.setup-zig.outputs.zig-version }}
+
+          Write-NvmPayloadSummary -Paths $expected -Title "Executables" -DisplayRoot $binRoot
+          Write-NvmPayloadSummary -Paths $eventAssets -Title "Event provider" -DisplayRoot $binRoot
+          Write-NvmPayloadSummary -Paths @($setup, $syncAsset) -Title "Release assets" -DisplayRoot $ctx.RepoRoot
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-${{ env.ARCHITECTURE }}
+          include-hidden-files: true
+          path: |
+            .dist/*-setup.exe
+            .dist/*-sync.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    if: success() && inputs.publish_release == true
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout (release scripts)
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            build
+          sparse-checkout-cone-mode: true
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          pattern: installer-*
+          merge-multiple: false
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OVERRIDE_EXISTING_RELEASE: ${{ inputs.override_existing_release }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          ARCHES: ${{ needs.prepare.outputs.arches }}
+        run: |
+          $archList = @($env:ARCHES -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+          if ($archList.Count -eq 0) {
+            throw "prepare.outputs.arches empty"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_VERSION)) {
+            throw "prepare.outputs.version empty"
+          }
+          if (-not (Test-Path -LiteralPath "release-assets" -PathType Container)) {
+            throw "release-assets directory missing after download-artifact"
+          }
+          Get-ChildItem -LiteralPath "release-assets" -Recurse -File | ForEach-Object {
+            Write-Host ("artifact file -> {0}" -f $_.FullName)
+          }
+
+          $pubArgs = @{
+            Mode          = "Publish"
+            Architectures = $archList
+            Version       = $env:RELEASE_VERSION
+            AssetRoot     = (Join-Path $PWD "release-assets")
+            Enabled       = $true
+          }
+          if ($env:OVERRIDE_EXISTING_RELEASE -eq "true") {
+            $pubArgs["OverrideExisting"] = $true
+          }
+          & .\build\steps\Publish-GitHubRelease.ps1 @pubArgs
