@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+*.exe binary
+*.dll binary
+*.bin binary
+*.cer binary
+
+# Cross-language verify-cache fixtures: payload bytes must match Go canonicalPayload exactly.
+shim/testdata/verifycache/payload.txt text eol=lf
