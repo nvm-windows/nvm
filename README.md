@@ -2,7 +2,7 @@
 
 > [!IMPORTANT]
 > ### Version 2 is now available!<br />
-> NVM for Windows has been fully rewritten for modern workflows. There are significant changes from v1, as listed below and in the [docs](https://docs.nvm-windows.com).
+> NVM for Windows has been fully rewritten for modern workflows. There are significant changes from v1, as listed below and in the [docs](https://docs.nvm-windows.com/features/newv2).
 
 # <sub><img src="https://github.com/nvm-windows.png?s=50" width="32" align="bottom" /></sub> NVM for Windows
 
