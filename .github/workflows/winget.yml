@@ -22,12 +22,12 @@ on:
         default: true
         type: boolean
       install_test:
-        description: "Best-effort install smoke test on GHA runner. Skipped with warning if runner cannot install local manifests."
+        description: "Best-effort silent install smoke test using release asset already on runner (not winget install). Warns and skips on failure; never fails dry-run."
         required: true
         default: true
         type: boolean
       verify_public_urls:
-        description: "Verify public download URLs + SHA256 (required before publish). Uncheck for private-repo validate-only runs."
+        description: "Verify anonymous GitHub release URLs download and match SHA256 (required for WinGet)."
         required: true
         default: true
         type: boolean
@@ -136,15 +136,7 @@ jobs:
 
       - name: Verify public release URLs and hashes
         if: inputs.verify_public_urls == true
-        env:
-          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          function Test-WorkflowBool([string]$Value) {
-            if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
-            return [System.Convert]::ToBoolean($Value)
-          }
-
-          $dryRun = Test-WorkflowBool $env:DRY_RUN
           $tag = $env:RELEASE_TAG.Trim()
           $version = $tag -replace '^[vV]', ''
           $failed = $false
@@ -178,10 +170,6 @@ jobs:
           }
 
           if ($failed) {
-            if ($dryRun) {
-              Write-Warning "Public URL verification incomplete (common for private repos). Uncheck verify_public_urls to silence, or make repo public before publish."
-              exit 0
-            }
             throw "Public URL verification failed. Release assets must be anonymously downloadable before WinGet publish."
           }
 
@@ -203,51 +191,38 @@ jobs:
       - name: Install smoke test (optional)
         id: install_test
         if: inputs.install_test == true
-        env:
-          WINGET_MANIFEST_DIR: ${{ steps.validate.outputs.manifest_dir }}
+        timeout-minutes: 5
         run: |
           function Write-InstallTestSkipped([string]$Reason) {
             Write-Warning "Install smoke test skipped: $Reason"
             "ran=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
 
-          function Enable-WingetLocalManifestFiles {
-            winget settings --enable LocalManifestFiles 2>&1 | Write-Host
-            if ($LASTEXITCODE -eq 0) { return $true }
-
-            $settingsPath = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\settings.json'
-            $settingsDir = Split-Path -Parent $settingsPath
-            if (-not (Test-Path -LiteralPath $settingsDir -PathType Container)) {
-              New-Item -ItemType Directory -Force -Path $settingsDir | Out-Null
-            }
-
-            $settings = [ordered]@{}
-            if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
-              $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -AsHashtable
-            }
-            if (-not $settings.Contains('installBehavior')) {
-              $settings['installBehavior'] = [ordered]@{}
-            }
-            $settings['installBehavior']['localManifestFiles'] = 'enabled'
-            ($settings | ConvertTo-Json -Depth 10) | Set-Content -LiteralPath $settingsPath -Encoding utf8
-            Write-Host "Enabled LocalManifestFiles via settings.json fallback."
-            return $true
-          }
-
-          if (-not (Enable-WingetLocalManifestFiles)) {
-            Write-InstallTestSkipped "could not enable winget LocalManifestFiles on this runner."
+          # Run the amd64 Inno installer from release-assets (already downloaded above).
+          # winget install --manifest re-downloads from GitHub and can hang on GHA
+          # (elevation prompts, winget dependency resolution).
+          $version = $env:RELEASE_TAG.Trim() -replace '^[vV]', ''
+          $installer = Join-Path $PWD "release-assets\nvm-$version-amd64-setup.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            Write-InstallTestSkipped "release asset missing: $installer"
             exit 0
           }
 
-          winget install --manifest $env:WINGET_MANIFEST_DIR --silent --accept-package-agreements --disable-interactivity 2>&1 | Write-Host
-          if ($LASTEXITCODE -ne 0) {
-            Write-InstallTestSkipped "winget install --manifest failed (manifest validate already passed)."
+          Write-Host "Running local installer smoke test -> $installer"
+          $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru -NoNewWindow
+          if (-not $proc.WaitForExit(240000)) {
+            try { $proc.Kill($true) } catch { $proc.Kill() }
+            Write-InstallTestSkipped "installer did not finish within 4 minutes."
+            exit 0
+          }
+          if ($proc.ExitCode -ne 0) {
+            Write-InstallTestSkipped "installer exited with code $($proc.ExitCode)."
             exit 0
           }
 
           $nvm = Join-Path $env:LOCALAPPDATA 'Author Software\nvm\nvm.exe'
           if (-not (Test-Path -LiteralPath $nvm -PathType Leaf)) {
-            Write-InstallTestSkipped "nvm.exe missing after winget install."
+            Write-InstallTestSkipped "nvm.exe missing after install."
             exit 0
           }
 
@@ -265,9 +240,13 @@ jobs:
         run: |
           $uninstaller = Join-Path $env:LOCALAPPDATA 'Author Software\nvm\unins000.exe'
           if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
-            Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -NoNewWindow
-            if ($LASTEXITCODE -ne 0) {
-              Write-Warning "Test uninstaller exited with code $LASTEXITCODE (ignored)."
+            $proc = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru -NoNewWindow
+            if (-not $proc.WaitForExit(120000)) {
+              try { $proc.Kill($true) } catch { $proc.Kill() }
+              Write-Warning "Test uninstaller did not finish within 2 minutes (ignored)."
+            }
+            elseif ($proc.ExitCode -ne 0) {
+              Write-Warning "Test uninstaller exited with code $($proc.ExitCode) (ignored)."
             }
           }
           else {
