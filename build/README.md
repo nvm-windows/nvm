@@ -69,7 +69,7 @@ Use it only after a public GitHub Release has both `amd64` and `arm64` setup ass
 2. Generates `AuthorSoftware.NVMforWindows` manifests and SHA256 values.
 3. Verifies anonymous public release URLs produce matching hashes.
 4. Runs `winget validate`.
-5. By default, installs the generated local manifest on the hosted x64 runner, runs `nvm --version`, then uninstalls it.
+5. By default, runs a silent install smoke test from the downloaded amd64 setup asset, runs `nvm --version`, then uninstalls.
 6. Uploads the generated manifests as a workflow artifact.
 7. When `dry_run` is **false**, runs `wingetcreate submit` against `microsoft/winget-pkgs` (needs package already present under that ID).
 
@@ -82,8 +82,8 @@ Inputs:
 | `release` | `latest` | `latest` = newest stable GitHub Release (no drafts/pre-releases). `custom` = use `release_tag`. |
 | `release_tag` | empty | Tag for `custom` (e.g. `v2.0.0-alpha.2`). Ignored when `release=latest`. |
 | `dry_run` | true | **On:** generate manifest, `winget validate`, upload artifact — no PR. **Off:** submit to `microsoft/winget-pkgs` (public repo + `WINGET_CREATE_GITHUB_TOKEN`). |
-| `install_test` | true | Best-effort install smoke test on GHA runner. Warns and skips if LocalManifestFiles unavailable; does not fail dry-run. |
-| `verify_public_urls` | true | Anonymous download + SHA256 (proves WinGet URLs work). **Off** for private-repo dry-run. On dry-run, failures warn instead of fail. **On** required before live submit. |
+| `install_test` | true | Silent install smoke test via local `release-assets` installer (not `winget install`). 4 min process timeout + 5 min step cap. Warns/skips on failure; never fails dry-run. |
+| `verify_public_urls` | true | Anonymous GitHub release download + SHA256 must match manifest hashes. Fails workflow on mismatch (dry-run or publish). |
 
 ### Secrets
 
