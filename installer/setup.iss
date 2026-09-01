@@ -96,6 +96,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Messages]
 WelcomeLabel1=[name] Setup Wizard
+UninstallOnlyPartial=Some elements could not be removed automatically. A detailed list will appear when this wizard closes.
 
 [Registry]
 ; Register nvm protocol
@@ -158,8 +159,9 @@ Source: "{#ProjectRoot}\{#Icon}"; DestDir: "{app}\.icons"; DestName: "{#Alias}.i
 Name: "{userprograms}\{#Name}"; Filename: "{app}\{#Alias}.exe"; IconFilename: "{app}\.icons\{#Alias}.ico"; Comment: "Node Version Manager"; AppUserModelID: "AuthorSoftware.NVMWindows"
 Name: "{userprograms}\{#Name}\Sync"; Filename: "{app}\utils\sync.exe"; IconFilename: "{app}\.icons\{#Alias}.ico"; Comment: "Background synchronization service"; AppUserModelID: "AuthorSoftware.NVMWindows"
 
-[UninstallRun]
-Filename: "{cmd}"; Parameters: "/C schtasks /Delete /TN ""{#SyncTaskName}"" /F"; Flags: runhidden; RunOnceId: "RemoveNVMSyncTask"
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{code:GetInstallRootForUninstall}"
 
 [Code]
 var
@@ -204,6 +206,7 @@ var
   LegacyCleanupWarnings: String;
   UninstallInstallRoot: String;
   UninstallAppRoot: String;
+  UninstallLeftovers: String;
 
 const
   WM_SETTINGCHANGE = $001A;
@@ -1525,6 +1528,61 @@ begin
     ((DirectoryName[1] = 'v') or (DirectoryName[1] = 'V'));
 end;
 
+function CountInstalledNodeVersions(const InstallRoot: String): Integer;
+var
+  FindRec: TFindRec;
+  RootDir: String;
+begin
+  Result := 0;
+  RootDir := Trim(InstallRoot);
+  if (RootDir = '') or (not DirExists(RootDir)) then
+    Exit;
+
+  if not FindFirst(AddBackslash(RootDir) + '*', FindRec) then
+    Exit;
+
+  try
+    repeat
+      if (FindRec.Name <> '.') and (FindRec.Name <> '..') and
+         ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
+         IsLegacyVersionDirectoryName(FindRec.Name) then
+        Result := Result + 1;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+function ConfirmUninstallRemoveNodeVersions(const InstallRoot: String): Boolean;
+var
+  VersionCount: Integer;
+  MessageText: String;
+  RootDisplay: String;
+begin
+  RootDisplay := Trim(InstallRoot);
+  if RootDisplay = '' then
+    RootDisplay := GetInstallRootForUninstall();
+
+  VersionCount := CountInstalledNodeVersions(RootDisplay);
+
+  MessageText :=
+    'Uninstalling NVM for Windows will permanently remove NVM and all Node.js versions it manages.';
+
+  if VersionCount > 0 then
+    MessageText := MessageText + #13#10 + #13#10 +
+      IntToStr(VersionCount) + ' installed Node.js version(s) will be deleted from:' + #13#10 +
+      RootDisplay
+  else
+    MessageText := MessageText + #13#10 + #13#10 +
+      'All Node.js versions in your NVM storage folder will be deleted:' + #13#10 +
+      RootDisplay;
+
+  MessageText := MessageText + #13#10 + #13#10 +
+    'This cannot be undone. Do you want to continue?';
+
+  Result := MsgBox(MessageText, mbConfirmation, MB_YESNO) = IDYES;
+end;
+
 procedure CountFilesInLegacyVersionDirectories(
   const RootDir: String;
   var FileCount: Integer;
@@ -2816,6 +2874,182 @@ begin
   FlushInstallLog();
 end;
 
+procedure ResetUninstallLeftovers();
+begin
+  UninstallLeftovers := '';
+end;
+
+procedure AppendUninstallLeftover(const Line: String);
+var
+  Trimmed: String;
+begin
+  Trimmed := Trim(Line);
+  if Trimmed = '' then
+    Exit;
+
+  if Pos(Trimmed, UninstallLeftovers) > 0 then
+    Exit;
+
+  if UninstallLeftovers <> '' then
+    UninstallLeftovers := UninstallLeftovers + #13#10;
+
+  UninstallLeftovers := UninstallLeftovers + Trimmed;
+end;
+
+procedure NotePathLeftoverIfExists(const Description, PathValue: String);
+var
+  TrimmedPath: String;
+begin
+  TrimmedPath := Trim(PathValue);
+  if TrimmedPath = '' then
+    Exit;
+
+  if FileExists(TrimmedPath) or DirExists(TrimmedPath) then
+    AppendUninstallLeftover(Description + ': ' + TrimmedPath);
+end;
+
+function SyncTaskStillExists(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec(
+    ExpandConstant('{cmd}'),
+    '/C schtasks /Query /TN "' + SyncTaskName + '" >NUL 2>&1',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) and (ResultCode = 0);
+end;
+
+procedure RemoveSyncTaskOnUninstall();
+var
+  ResultCode: Integer;
+begin
+  if not SyncTaskStillExists() then
+    Exit;
+
+  if Exec(
+    ExpandConstant('{cmd}'),
+    '/C schtasks /Delete /TN "' + SyncTaskName + '" /F',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+  begin
+    if ResultCode <> 0 then
+      AppendUninstallLeftover('Scheduled task: ' + SyncTaskName);
+  end
+  else
+    AppendUninstallLeftover('Scheduled task: ' + SyncTaskName);
+end;
+
+procedure ScanKnownLockedShims(const AppRoot: String);
+var
+  TrimmedAppRoot: String;
+begin
+  TrimmedAppRoot := Trim(AppRoot);
+  if TrimmedAppRoot = '' then
+    Exit;
+
+  NotePathLeftoverIfExists('nvm executable', TrimmedAppRoot + '\' + ExpandConstant('{#Alias}') + '.exe');
+  NotePathLeftoverIfExists('proxy shim', TrimmedAppRoot + '\utils\proxy.exe');
+  NotePathLeftoverIfExists('sync service', TrimmedAppRoot + '\utils\sync.exe');
+  NotePathLeftoverIfExists('node shim', TrimmedAppRoot + '\.shim\node.exe');
+  NotePathLeftoverIfExists('npm shim', TrimmedAppRoot + '\.shim\npm.exe');
+  NotePathLeftoverIfExists('npx shim', TrimmedAppRoot + '\.shim\npx.exe');
+end;
+
+procedure ScanRegistryLeftovers();
+var
+  PrefsKey: String;
+  NVMHome: String;
+begin
+  PrefsKey := 'Software\{#OrgLabel}\Preferences\{#Alias}';
+
+  if RegKeyExists(HKCU, PrefsKey) then
+    AppendUninstallLeftover('Registry (HKCU): ' + PrefsKey);
+
+  if RegValueExists(HKLM, PrefsKey, 'AccessToken') or
+     RegValueExists(HKLM, PrefsKey, 'AccessKey') or
+     RegValueExists(HKLM, PrefsKey, 'JwksCose') then
+    AppendUninstallLeftover('Registry (HKLM licensing; run uninstall as admin to remove): ' + PrefsKey);
+
+  if RegValueExists(HKCU, 'Environment', 'NVM_HOME') then
+  begin
+    if RegQueryStringValue(HKCU, 'Environment', 'NVM_HOME', NVMHome) then
+      AppendUninstallLeftover('Environment variable NVM_HOME: ' + NVMHome);
+  end;
+end;
+
+procedure ScanUninstallLeftovers();
+var
+  AppRoot: String;
+  InstallRoot: String;
+begin
+  AppRoot := Trim(UninstallAppRoot);
+  if AppRoot = '' then
+    AppRoot := ExpandConstant('{app}');
+  AppRoot := RemoveBackslashUnlessRoot(AppRoot);
+
+  InstallRoot := Trim(UninstallInstallRoot);
+  if InstallRoot = '' then
+    InstallRoot := GetInstallRootForUninstall();
+  InstallRoot := RemoveBackslashUnlessRoot(InstallRoot);
+
+  NotePathLeftoverIfExists('Program folder', AppRoot);
+
+  if (InstallRoot <> '') and (CompareText(InstallRoot, AppRoot) <> 0) then
+    NotePathLeftoverIfExists('Node.js versions folder', InstallRoot);
+
+  ScanKnownLockedShims(AppRoot);
+  ScanRegistryLeftovers();
+
+  if SyncTaskStillExists() then
+    AppendUninstallLeftover('Scheduled task: ' + SyncTaskName);
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  ResetUninstallLeftovers();
+  UninstallAppRoot := ExpandConstant('{app}');
+  UninstallInstallRoot := GetInstallRootForUninstall();
+
+  if UninstallSilent() then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  Result := ConfirmUninstallRemoveNodeVersions(UninstallInstallRoot);
+end;
+
+procedure DeinitializeUninstall();
+var
+  Report: String;
+begin
+  ScanUninstallLeftovers();
+  Report := Trim(UninstallLeftovers);
+
+  if Report = '' then
+    Exit;
+
+  Log('Uninstall leftovers:' + #13#10 + Report);
+
+  if UninstallSilent() then
+    Exit;
+
+  MsgBox(
+    'NVM for Windows could not remove everything automatically.' + #13#10 + #13#10 +
+    Report + #13#10 + #13#10 +
+    'Close terminals and apps using Node.js or nvm, then delete the paths above.' + #13#10 +
+    'Uninstall log: ' + ExpandConstant('{log}'),
+    mbInformation,
+    MB_OK
+  );
+end;
+
 procedure RemoveAllNodeVersionsWindowsAppsEntries();
 var
   SubKeys: TArrayOfString;
@@ -2858,13 +3092,17 @@ begin
   if not IsSafeRemovableDirectory(RootToRemove) then
   begin
     Log('Skipping install root removal due to safety check: ' + RootToRemove);
+    AppendUninstallLeftover('Node.js versions folder (skipped safety check): ' + RootToRemove);
     Exit;
   end;
 
   if DelTree(RootToRemove, True, True, True) then
     Log('Removed install root directory: ' + RootToRemove)
   else
+  begin
     Log('Failed to remove install root directory: ' + RootToRemove);
+    AppendUninstallLeftover('Node.js versions folder: ' + RootToRemove);
+  end;
 end;
 
 procedure CleanupAppRootOnUninstall();
@@ -2891,6 +3129,7 @@ begin
   if not IsSafeRemovableDirectory(AppRoot) then
   begin
     Log('Skipping app root removal due to safety check: ' + AppRoot);
+    AppendUninstallLeftover('Program folder (skipped safety check): ' + AppRoot);
     Exit;
   end;
 
@@ -2916,6 +3155,7 @@ begin
   end;
 
   Log('Immediate app root removal failed, scheduling delayed cleanup: ' + AppRoot);
+  AppendUninstallLeftover('Program folder (in use; delete manually after closing terminals): ' + AppRoot);
 
   AppRootEscaped := EscapeSingleQuotedPowerShellString(AppRoot);
   OrgRootEscaped := EscapeSingleQuotedPowerShellString(OrgRoot);
@@ -2955,6 +3195,13 @@ begin
     '$preferencesKey = $orgKey + ''\Preferences''' + #13#10 +
     '$aliasKey = $preferencesKey + ''\{#Alias}''' + #13#10 +
     '$hkcu = [Microsoft.Win32.Registry]::CurrentUser' + #13#10 +
+    '$hklm = [Microsoft.Win32.Registry]::LocalMachine' + #13#10 +
+    'foreach ($valueName in @(''AccessToken'',''AccessKey'',''JwksCose'')) {' + #13#10 +
+    '  try {' + #13#10 +
+    '    $k = $hklm.OpenSubKey($aliasKey, $true)' + #13#10 +
+    '    if ($null -ne $k) { $k.DeleteValue($valueName, $false); $k.Close() }' + #13#10 +
+    '  } catch {}' + #13#10 +
+    '}' + #13#10 +
     'try { $hkcu.DeleteSubKeyTree($aliasKey, $false) } catch {}' + #13#10 +
     'function Remove-IfEmpty([Microsoft.Win32.RegistryKey]$root, [string]$path) {' + #13#10 +
     '  $k = $root.OpenSubKey($path, $true)' + #13#10 +
@@ -2966,7 +3213,10 @@ begin
     '  }' + #13#10 +
     '}' + #13#10 +
     'Remove-IfEmpty -root $hkcu -path $preferencesKey' + #13#10 +
-    'Remove-IfEmpty -root $hkcu -path $orgKey';
+    'Remove-IfEmpty -root $hkcu -path $orgKey' + #13#10 +
+    'Remove-IfEmpty -root $hklm -path $aliasKey' + #13#10 +
+    'Remove-IfEmpty -root $hklm -path $preferencesKey' + #13#10 +
+    'Remove-IfEmpty -root $hklm -path $orgKey';
 
   SaveStringToFile(RegistryCleanupScriptFile, RegistryCleanupScript, False);
   Exec(
@@ -2980,7 +3230,37 @@ begin
   DeleteFile(RegistryCleanupScriptFile);
 
   if ResultCode <> 0 then
+  begin
     Log('Registry cleanup script returned exit code ' + IntToStr(ResultCode) + '.');
+    AppendUninstallLeftover('Registry cleanup failed (HKCU/HKLM preferences may remain)');
+  end;
+end;
+
+procedure ClearMachineLicensingOnUninstall();
+var
+  NVMExe: String;
+  ResultCode: Integer;
+begin
+  NVMExe := ExpandConstant('{app}\{#Alias}.exe');
+  if not FileExists(NVMExe) then
+  begin
+    Log('Skipping machine licensing cleanup; nvm.exe not found at ' + NVMExe);
+    Exit;
+  end;
+
+  if Exec(NVMExe, '--clear-machine-licensing', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if ResultCode <> 0 then
+    begin
+      Log('Machine licensing cleanup returned exit code ' + IntToStr(ResultCode) + '.');
+      AppendUninstallLeftover('Machine licensing keys (HKLM; run uninstall as admin to remove)');
+    end;
+  end
+  else
+  begin
+    Log('Failed to run machine licensing cleanup.');
+    AppendUninstallLeftover('Machine licensing keys (HKLM; run uninstall as admin to remove)');
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -2989,7 +3269,9 @@ begin
   begin
     UninstallAppRoot := ExpandConstant('{app}');
     UninstallInstallRoot := GetInstallRootForUninstall();
+    RemoveSyncTaskOnUninstall();
     RemoveAllNodeVersionsWindowsAppsEntries();
+    ClearMachineLicensingOnUninstall();
   end;
 
   if CurUninstallStep = usPostUninstall then
