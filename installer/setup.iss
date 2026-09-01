@@ -77,7 +77,7 @@ OutputBaseFilename={#OutputFileName}
 ; OutputBaseFilename={#Alias}-setup-{#Version}.{#GetDateTimeString('yyyymmddHHnnss', '', '')}
 SetupIconFile={#ProjectRoot}\{#Icon}
 UninstallDisplayName={#Name}
-UninstallDisplayIcon={app}\{#Alias}.exe
+UninstallDisplayIcon={app}\.icons\{#Alias}.ico
 WizardImageFile={#ProjectRoot}\assets\left-banner.png
 WizardStyle=classic
 Compression=lzma
@@ -96,13 +96,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Messages]
 WelcomeLabel1=[name] Setup Wizard
-UninstallOnlyPartial=Some elements could not be removed automatically. A detailed list will appear when this wizard closes.
+UninstalledMost=%1 was successfully removed from your computer.
 
 [Registry]
 ; Register nvm protocol
 Root: HKCU; Subkey: "Software\Classes\{#Alias}"; ValueType: string; ValueName: ""; ValueData: "URL:{#Alias}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\{#Alias}"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\{#Alias}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#Alias}.exe,0"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\{#Alias}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\.icons\{#Alias}.ico"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\{#Alias}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#Alias}.exe"" ""%1"""; Flags: uninsdeletekey
 
 ; Register AUMID for Windows notification center integration
@@ -135,7 +135,7 @@ Root: HKCU; Subkey: "{#RegistryKey}"; ValueType: string; ValueName: "PackageMana
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "NVM_HOME"; ValueData: "{app}"; Flags: uninsdeletevalue
 
 [Dirs]
-Name: "{code:GetInstallRoot}"
+Name: "{code:GetInstallRoot}"; Flags: uninsneveruninstall
 Name: "{app}\.sync"; Attribs: hidden
 Name: "{app}\.shim"; Attribs: hidden
 Name: "{app}\.link"; Attribs: hidden
@@ -158,10 +158,6 @@ Source: "{#ProjectRoot}\{#Icon}"; DestDir: "{app}\.icons"; DestName: "{#Alias}.i
 [Icons]
 Name: "{userprograms}\{#Name}"; Filename: "{app}\{#Alias}.exe"; IconFilename: "{app}\.icons\{#Alias}.ico"; Comment: "Node Version Manager"; AppUserModelID: "AuthorSoftware.NVMWindows"
 Name: "{userprograms}\{#Name}\Sync"; Filename: "{app}\utils\sync.exe"; IconFilename: "{app}\.icons\{#Alias}.ico"; Comment: "Background synchronization service"; AppUserModelID: "AuthorSoftware.NVMWindows"
-
-
-[UninstallDelete]
-Type: filesandordirs; Name: "{code:GetInstallRootForUninstall}"
 
 [Code]
 var
@@ -207,6 +203,8 @@ var
   UninstallInstallRoot: String;
   UninstallAppRoot: String;
   UninstallLeftovers: String;
+  UninstallDelayedCleanupScheduled: Boolean;
+  UninstallSelfExe: String;
 
 const
   WM_SETTINGCHANGE = $001A;
@@ -221,6 +219,8 @@ function SendMessageTimeoutW(hWnd: HWND; Msg: UINT; wParam: UINT; lParam: String
 function NormalizePath(const PathValue: String): String; forward;
 procedure SplitPathString(const PathStr: String; var Segments: TArrayOfString); forward;
 function ExpandPathSegment(const Segment: String): String; forward;
+function GetInstallRootForUninstall(Param: String): String; forward;
+procedure ForceCloseNvmProcessesOnUninstall(); forward;
 
 procedure BroadcastEnvironmentChange();
 var
@@ -1528,6 +1528,13 @@ begin
     ((DirectoryName[1] = 'v') or (DirectoryName[1] = 'V'));
 end;
 
+function IsInstalledNodeVersionDirectory(const RootDir, DirectoryName: String): Boolean;
+begin
+  Result :=
+    IsLegacyVersionDirectoryName(DirectoryName) and
+    FileExists(AddBackslash(AddBackslash(RootDir) + DirectoryName) + 'node.exe');
+end;
+
 function CountInstalledNodeVersions(const InstallRoot: String): Integer;
 var
   FindRec: TFindRec;
@@ -1545,7 +1552,7 @@ begin
     repeat
       if (FindRec.Name <> '.') and (FindRec.Name <> '..') and
          ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
-         IsLegacyVersionDirectoryName(FindRec.Name) then
+         IsInstalledNodeVersionDirectory(RootDir, FindRec.Name) then
         Result := Result + 1;
     until not FindNext(FindRec);
   finally
@@ -1561,23 +1568,20 @@ var
 begin
   RootDisplay := Trim(InstallRoot);
   if RootDisplay = '' then
-    RootDisplay := GetInstallRootForUninstall();
+    RootDisplay := GetInstallRootForUninstall('');
 
   VersionCount := CountInstalledNodeVersions(RootDisplay);
 
+  if VersionCount = 0 then
+  begin
+    Result := True;
+    Exit;
+  end;
+
   MessageText :=
-    'Uninstalling NVM for Windows will permanently remove NVM and all Node.js versions it manages.';
-
-  if VersionCount > 0 then
-    MessageText := MessageText + #13#10 + #13#10 +
-      IntToStr(VersionCount) + ' installed Node.js version(s) will be deleted from:' + #13#10 +
-      RootDisplay
-  else
-    MessageText := MessageText + #13#10 + #13#10 +
-      'All Node.js versions in your NVM storage folder will be deleted:' + #13#10 +
-      RootDisplay;
-
-  MessageText := MessageText + #13#10 + #13#10 +
+    'Uninstalling NVM for Windows will permanently remove NVM and all Node.js versions it manages.' + #13#10 + #13#10 +
+    IntToStr(VersionCount) + ' installed Node.js version(s) will be deleted from:' + #13#10 +
+    RootDisplay + #13#10 + #13#10 +
     'This cannot be undone. Do you want to continue?';
 
   Result := MsgBox(MessageText, mbConfirmation, MB_YESNO) = IDYES;
@@ -2678,6 +2682,17 @@ begin
   RegWriteStringValue(HKCU, 'Software\Classes\AppUserModelId\AuthorSoftware.NVMWindows', 'IconUri', ExpandConstant('{app}\.icons\{#Alias}.ico'));
 end;
 
+procedure ConfigureUninstallDisplayIcon();
+begin
+  { Always refresh ARP icon so Installed apps shows logo after upgrade }
+  RegWriteStringValue(
+    HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1',
+    'DisplayIcon',
+    ExpandConstant('{app}\.icons\{#Alias}.ico')
+  );
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
@@ -2811,6 +2826,7 @@ begin
     FinalizingStep := FinalizingStep + 1;
     UpdateFinalizingProgress(FinalizingPage, 'Configuring notification center integration...', FinalizingStep, FinalizingTotal);
     ConfigureAUMIDForNotifications();
+    ConfigureUninstallDisplayIcon();
 
     FinalizingStep := FinalizingStep + 1;
     UpdateFinalizingProgress(FinalizingPage, 'Rebuilding and prewarming module shims...', FinalizingStep, FinalizingTotal);
@@ -2877,6 +2893,71 @@ end;
 procedure ResetUninstallLeftovers();
 begin
   UninstallLeftovers := '';
+  UninstallDelayedCleanupScheduled := False;
+end;
+
+function BuildNvmProcessManagementScript(
+  const AppRoot, InstallRoot, OutputFile, Mode, ExcludeProcessPath: String
+): String;
+var
+  AppEscaped, InstallEscaped, OutputEscaped, ModeEscaped, ExcludeEscaped: String;
+  ListBranch: String;
+begin
+  AppEscaped := EscapeSingleQuotedPowerShellString(AppRoot);
+  InstallEscaped := EscapeSingleQuotedPowerShellString(InstallRoot);
+  OutputEscaped := EscapeSingleQuotedPowerShellString(OutputFile);
+  ModeEscaped := EscapeSingleQuotedPowerShellString(Mode);
+  ExcludeEscaped := EscapeSingleQuotedPowerShellString(ExcludeProcessPath);
+
+  if CompareText(Mode, 'list') = 0 then
+    ListBranch :=
+      '    $line = $Name + ''|'' + $ProcId + ''|'' + $Detail' + #13#10 +
+      '    $utf8NoBom = New-Object System.Text.UTF8Encoding $false' + #13#10 +
+      '    [System.IO.File]::AppendAllText($outFile, $line + [Environment]::NewLine, $utf8NoBom)' + #13#10
+  else
+    ListBranch :=
+      '    Stop-Process -Id ([int]$ProcId) -Force -ErrorAction SilentlyContinue' + #13#10;
+
+  Result :=
+    '$mode = ''' + ModeEscaped + '''' + #13#10 +
+    '$outFile = ''' + OutputEscaped + '''' + #13#10 +
+    '$excludePath = ''' + ExcludeEscaped + '''' + #13#10 +
+    '$seen = @{}' + #13#10 +
+    'function Test-ExcludedNvmProcess([string]$Name, [string]$Detail) {' + #13#10 +
+    '  if ($Name -match ''^(?i)unins\d*$'') { return $true }' + #13#10 +
+    '  if ($excludePath -and $Detail -and ($Detail -ieq $excludePath)) { return $true }' + #13#10 +
+    '  return $false' + #13#10 +
+    '}' + #13#10 +
+    'function Register-NvmRootProcessMatch([string]$ProcId, [string]$Name, [string]$Detail) {' + #13#10 +
+    '  if (Test-ExcludedNvmProcess $Name $Detail) { return }' + #13#10 +
+    '  if ($seen.ContainsKey($ProcId)) { return }' + #13#10 +
+    '  $seen[$ProcId] = $true' + #13#10 +
+    '  if ($mode -eq ''list'') {' + #13#10 +
+    ListBranch +
+    '  } else {' + #13#10 +
+    '    Stop-Process -Id ([int]$ProcId) -Force -ErrorAction SilentlyContinue' + #13#10 +
+    '  }' + #13#10 +
+    '}' + #13#10 +
+    'function Invoke-NvmRootProcesses([string]$Root) {' + #13#10 +
+    '  if ([string]::IsNullOrWhiteSpace($Root)) { return }' + #13#10 +
+    '  if (-not (Test-Path -LiteralPath $Root)) { return }' + #13#10 +
+    '  $rootNorm = $Root.TrimEnd(''\'')' + #13#10 +
+    '  Get-Process -ErrorAction SilentlyContinue | ForEach-Object {' + #13#10 +
+    '    try {' + #13#10 +
+    '      $path = $_.Path' + #13#10 +
+    '      if ($null -ne $path -and $path.StartsWith($rootNorm, [StringComparison]::OrdinalIgnoreCase)) {' + #13#10 +
+    '        Register-NvmRootProcessMatch ([string]$_.Id) $_.ProcessName $path' + #13#10 +
+    '      }' + #13#10 +
+    '    } catch {}' + #13#10 +
+    '  }' + #13#10 +
+    '}' + #13#10 +
+    '$appRoot = ''' + AppEscaped + '''' + #13#10 +
+    '$installRoot = ''' + InstallEscaped + '''' + #13#10 +
+    'if ($mode -eq ''list'' -and (Test-Path -LiteralPath $outFile)) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue }' + #13#10 +
+    'if ($mode -eq ''list'') { New-Item -Path $outFile -ItemType File -Force | Out-Null }' + #13#10 +
+    'Invoke-NvmRootProcesses $appRoot' + #13#10 +
+    'if ($installRoot -and ($installRoot -ne $appRoot)) { Invoke-NvmRootProcesses $installRoot }' + #13#10 +
+    'if ($mode -ne ''list'') { Start-Sleep -Seconds 2 }';
 end;
 
 procedure AppendUninstallLeftover(const Line: String);
@@ -2939,10 +3020,223 @@ begin
   ) then
   begin
     if ResultCode <> 0 then
-      AppendUninstallLeftover('Scheduled task: ' + SyncTaskName);
+      Log('Scheduled task could not be removed during uninstall: ' + SyncTaskName + ' (exit code ' + IntToStr(ResultCode) + ').');
   end
   else
-    AppendUninstallLeftover('Scheduled task: ' + SyncTaskName);
+    Log('Scheduled task removal command failed during uninstall: ' + SyncTaskName + '.');
+end;
+
+function BuildStopProcessesUnderRootsPowerShell(
+  const AppRoot, InstallRoot: String
+): String;
+begin
+  Result := BuildNvmProcessManagementScript(
+    AppRoot, InstallRoot, '', 'stop', UninstallSelfExe);
+end;
+
+function BuildListProcessesUnderRootsPowerShell(
+  const AppRoot, InstallRoot, OutputFile: String
+): String;
+begin
+  Result := BuildNvmProcessManagementScript(
+    AppRoot, InstallRoot, OutputFile, 'list', UninstallSelfExe);
+end;
+
+function StripUtf8Bom(const Value: String): String;
+begin
+  Result := Value;
+  if (Length(Result) >= 3) and (Copy(Result, 1, 3) = #$EF#$BB#$BF) then
+    Delete(Result, 1, 3);
+end;
+
+function FormatBlockingProcessLine(const Line: String): String;
+var
+  Pipe1, Pipe2: Integer;
+  NamePart, PidPart, PathPart: String;
+begin
+  Result := '';
+  Pipe1 := Pos('|', Line);
+  if Pipe1 = 0 then
+    Exit;
+
+  Pipe2 := Pos('|', Copy(Line, Pipe1 + 1, MaxInt));
+  if Pipe2 = 0 then
+    Exit;
+
+  NamePart := StripUtf8Bom(Trim(Copy(Line, 1, Pipe1 - 1)));
+  PidPart := Trim(Copy(Line, Pipe1 + 1, Pipe2 - 1));
+  PathPart := Trim(Copy(Line, Pipe1 + Pipe2 + 1, MaxInt));
+
+  if (NamePart = '') or (PidPart = '') then
+    Exit;
+
+  if CompareText(NamePart, 'unins000') = 0 then
+    Exit;
+
+  if (UninstallSelfExe <> '') and (CompareText(PathPart, UninstallSelfExe) = 0) then
+    Exit;
+
+  Result := '- ' + NamePart + ' (PID ' + PidPart + ')' + #13#10 + '  ' + PathPart;
+end;
+
+function ScanBlockingUninstallProcesses(
+  const AppRoot, InstallRoot: String;
+  var ProcessList: String
+): Boolean;
+var
+  ScriptFile: String;
+  OutputFile: String;
+  RawOutput: AnsiString;
+  RawText: String;
+  ResultCode: Integer;
+  LineStart, LineEnd, LineLength: Integer;
+  Line: String;
+  FormattedLine: String;
+begin
+  Result := False;
+  ProcessList := '';
+
+  OutputFile := ExpandConstant('{tmp}\nvm-uninstall-blockers.txt');
+  DeleteFile(OutputFile);
+
+  ScriptFile := ExpandConstant('{tmp}\nvm-uninstall-list-processes.ps1');
+  SaveStringToFile(
+    ScriptFile,
+    BuildListProcessesUnderRootsPowerShell(AppRoot, InstallRoot, OutputFile),
+    False
+  );
+
+  if Exec(
+    ExpandConstant('{cmd}'),
+    '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+  begin
+    if LoadStringFromFile(OutputFile, RawOutput) then
+    begin
+      RawText := String(RawOutput);
+      LineStart := 1;
+      while LineStart <= Length(RawText) do
+      begin
+        LineEnd := LineStart;
+        while (LineEnd <= Length(RawText)) and (RawText[LineEnd] <> #10) and (RawText[LineEnd] <> #13) do
+          LineEnd := LineEnd + 1;
+
+        LineLength := LineEnd - LineStart;
+        if LineLength > 0 then
+        begin
+          Line := Trim(Copy(RawText, LineStart, LineLength));
+          FormattedLine := FormatBlockingProcessLine(Line);
+          if FormattedLine <> '' then
+          begin
+            if ProcessList <> '' then
+              ProcessList := ProcessList + #13#10;
+            ProcessList := ProcessList + FormattedLine;
+          end;
+        end;
+
+        LineStart := LineEnd + 1;
+        if (LineStart <= Length(RawText)) and (RawText[LineStart] = #10) then
+          LineStart := LineStart + 1;
+      end;
+    end;
+  end
+  else
+    Log('Blocking-process scan script failed to start.');
+
+  DeleteFile(ScriptFile);
+  DeleteFile(OutputFile);
+
+  ProcessList := Trim(ProcessList);
+  Result := ProcessList <> '';
+end;
+
+function ConfirmUninstallBlockingProcesses(): Boolean;
+var
+  AppRoot: String;
+  InstallRoot: String;
+  ProcessList: String;
+  Response: Integer;
+  MessageText: String;
+begin
+  Result := True;
+
+  AppRoot := RemoveBackslashUnlessRoot(Trim(UninstallAppRoot));
+  if AppRoot = '' then
+    AppRoot := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));
+
+  InstallRoot := RemoveBackslashUnlessRoot(Trim(UninstallInstallRoot));
+  if InstallRoot = '' then
+    InstallRoot := RemoveBackslashUnlessRoot(GetInstallRootForUninstall(''));
+
+  while True do
+  begin
+    if not ScanBlockingUninstallProcesses(AppRoot, InstallRoot, ProcessList) then
+      Break;
+
+    MessageText :=
+      'Close these NVM processes before uninstall can continue:' + #13#10 + #13#10 +
+      ProcessList + #13#10 + #13#10 +
+      'Yes = close them and continue' + #13#10 +
+      'No = cancel uninstall' + #13#10 +
+      'Cancel = check again';
+
+    Response := MsgBox(MessageText, mbConfirmation, MB_YESNOCANCEL);
+
+    if Response = IDNO then
+    begin
+      Result := False;
+      Exit;
+    end;
+
+    if Response = IDYES then
+    begin
+      ForceCloseNvmProcessesOnUninstall();
+      Break;
+    end;
+  end;
+end;
+
+procedure ForceCloseNvmProcessesOnUninstall();
+var
+  ScriptFile: String;
+  AppRoot: String;
+  InstallRoot: String;
+  ResultCode: Integer;
+begin
+  AppRoot := Trim(UninstallAppRoot);
+  if AppRoot = '' then
+    AppRoot := ExpandConstant('{app}');
+  AppRoot := RemoveBackslashUnlessRoot(AppRoot);
+
+  InstallRoot := Trim(UninstallInstallRoot);
+  if InstallRoot = '' then
+    InstallRoot := GetInstallRootForUninstall('');
+  InstallRoot := RemoveBackslashUnlessRoot(InstallRoot);
+
+  ScriptFile := ExpandConstant('{tmp}\nvm-uninstall-force-close.ps1');
+  SaveStringToFile(
+    ScriptFile,
+    BuildStopProcessesUnderRootsPowerShell(AppRoot, InstallRoot),
+    False
+  );
+
+  if Exec(
+    ExpandConstant('{cmd}'),
+    '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+    Log('Force-close script completed with exit code ' + IntToStr(ResultCode) + '.')
+  else
+    Log('Force-close script failed to start.');
+
+  DeleteFile(ScriptFile);
 end;
 
 procedure ScanKnownLockedShims(const AppRoot: String);
@@ -2983,11 +3277,71 @@ begin
   end;
 end;
 
+procedure AppendRunningNvmProcessesToLeftovers(
+  const AppRoot, InstallRoot: String
+);
+var
+  ProcessList: String;
+begin
+  if not ScanBlockingUninstallProcesses(AppRoot, InstallRoot, ProcessList) then
+    Exit;
+
+  ProcessList := Trim(ProcessList);
+  if ProcessList = '' then
+    Exit;
+
+  AppendUninstallLeftover('Running NVM processes blocked removal:' + #13#10 + ProcessList);
+end;
+
+function IsIgnorableUninstallLeftoverLine(const Line: String): Boolean;
+var
+  Trimmed: String;
+begin
+  Trimmed := Trim(Line);
+  Result :=
+    (Trimmed = '') or
+    (CompareText(Trimmed, 'Running NVM processes:') = 0) or
+    (CompareText(Trimmed, 'Running NVM processes blocked removal:') = 0);
+end;
+
+function BuildUninstallLeftoverDisplayReport(const Report: String): String;
+var
+  LineStart, LineEnd, LineLength: Integer;
+  Line: String;
+begin
+  Result := '';
+  LineStart := 1;
+  while LineStart <= Length(Report) do
+  begin
+    LineEnd := LineStart;
+    while (LineEnd <= Length(Report)) and (Report[LineEnd] <> #10) and (Report[LineEnd] <> #13) do
+      LineEnd := LineEnd + 1;
+
+    LineLength := LineEnd - LineStart;
+    if LineLength > 0 then
+    begin
+      Line := StripUtf8Bom(Trim(Copy(Report, LineStart, LineLength)));
+      if not IsIgnorableUninstallLeftoverLine(Line) then
+      begin
+        if Result <> '' then
+          Result := Result + #13#10;
+        Result := Result + Line;
+      end;
+    end;
+
+    LineStart := LineEnd + 1;
+    if (LineStart <= Length(Report)) and (Report[LineStart] = #10) then
+      LineStart := LineStart + 1;
+  end;
+end;
+
 procedure ScanUninstallLeftovers();
 var
   AppRoot: String;
   InstallRoot: String;
 begin
+  UninstallLeftovers := '';
+
   AppRoot := Trim(UninstallAppRoot);
   if AppRoot = '' then
     AppRoot := ExpandConstant('{app}');
@@ -2995,26 +3349,33 @@ begin
 
   InstallRoot := Trim(UninstallInstallRoot);
   if InstallRoot = '' then
-    InstallRoot := GetInstallRootForUninstall();
+    InstallRoot := GetInstallRootForUninstall('');
   InstallRoot := RemoveBackslashUnlessRoot(InstallRoot);
 
-  NotePathLeftoverIfExists('Program folder', AppRoot);
-
-  if (InstallRoot <> '') and (CompareText(InstallRoot, AppRoot) <> 0) then
-    NotePathLeftoverIfExists('Node.js versions folder', InstallRoot);
-
-  ScanKnownLockedShims(AppRoot);
   ScanRegistryLeftovers();
 
   if SyncTaskStillExists() then
     AppendUninstallLeftover('Scheduled task: ' + SyncTaskName);
+
+  { Delayed app-folder cleanup is expected; do not warn about paths/processes there. }
+  if UninstallDelayedCleanupScheduled then
+    Exit;
+
+  NotePathLeftoverIfExists('Program folder', AppRoot);
+
+  if (InstallRoot <> '') and (not PathIsUnderOrEqualRoot(InstallRoot, AppRoot)) then
+    NotePathLeftoverIfExists('Node.js versions folder', InstallRoot);
+
+  ScanKnownLockedShims(AppRoot);
+  AppendRunningNvmProcessesToLeftovers(AppRoot, InstallRoot);
 end;
 
 function InitializeUninstall(): Boolean;
 begin
   ResetUninstallLeftovers();
   UninstallAppRoot := ExpandConstant('{app}');
-  UninstallInstallRoot := GetInstallRootForUninstall();
+  UninstallInstallRoot := GetInstallRootForUninstall('');
+  UninstallSelfExe := ExpandConstant('{uninstallexe}');
 
   if UninstallSilent() then
   begin
@@ -3023,28 +3384,32 @@ begin
   end;
 
   Result := ConfirmUninstallRemoveNodeVersions(UninstallInstallRoot);
+  if not Result then
+    Exit;
+
+  Result := ConfirmUninstallBlockingProcesses();
 end;
 
 procedure DeinitializeUninstall();
 var
-  Report: String;
+  DisplayReport: String;
 begin
   ScanUninstallLeftovers();
-  Report := Trim(UninstallLeftovers);
+  DisplayReport := Trim(BuildUninstallLeftoverDisplayReport(Trim(UninstallLeftovers)));
 
-  if Report = '' then
+  if DisplayReport = '' then
     Exit;
 
-  Log('Uninstall leftovers:' + #13#10 + Report);
+  Log('Uninstall leftovers:' + #13#10 + DisplayReport);
 
   if UninstallSilent() then
     Exit;
 
   MsgBox(
-    'NVM for Windows could not remove everything automatically.' + #13#10 + #13#10 +
-    Report + #13#10 + #13#10 +
-    'Close terminals and apps using Node.js or nvm, then delete the paths above.' + #13#10 +
-    'Uninstall log: ' + ExpandConstant('{log}'),
+    'Some NVM for Windows data could not be removed:' + #13#10 + #13#10 +
+    DisplayReport + #13#10 + #13#10 +
+    'Remove these manually to complete uninstall.' + #13#10 +
+    'Log: ' + ExpandConstant('{log}'),
     mbInformation,
     MB_OK
   );
@@ -3067,7 +3432,7 @@ begin
   end;
 end;
 
-function GetInstallRootForUninstall(): String;
+function GetInstallRootForUninstall(Param: String): String;
 begin
   Result := '';
   if not RegQueryStringValue(HKCU, '{#RegistryKey}', 'InstallRoot', Result) then
@@ -3081,7 +3446,7 @@ var
 begin
   RootToRemove := Trim(UninstallInstallRoot);
   if RootToRemove = '' then
-    RootToRemove := GetInstallRootForUninstall();
+    RootToRemove := GetInstallRootForUninstall('');
 
   if RootToRemove = '' then
     Exit;
@@ -3092,16 +3457,22 @@ begin
   if not IsSafeRemovableDirectory(RootToRemove) then
   begin
     Log('Skipping install root removal due to safety check: ' + RootToRemove);
-    AppendUninstallLeftover('Node.js versions folder (skipped safety check): ' + RootToRemove);
     Exit;
   end;
+
+  ForceCloseNvmProcessesOnUninstall();
 
   if DelTree(RootToRemove, True, True, True) then
     Log('Removed install root directory: ' + RootToRemove)
   else
   begin
-    Log('Failed to remove install root directory: ' + RootToRemove);
-    AppendUninstallLeftover('Node.js versions folder: ' + RootToRemove);
+    Log('Install root removal failed after force-close, retrying: ' + RootToRemove);
+    ForceCloseNvmProcessesOnUninstall();
+
+    if DelTree(RootToRemove, True, True, True) then
+      Log('Removed install root directory on retry: ' + RootToRemove)
+    else
+      Log('Failed to remove install root directory: ' + RootToRemove);
   end;
 end;
 
@@ -3129,13 +3500,32 @@ begin
   if not IsSafeRemovableDirectory(AppRoot) then
   begin
     Log('Skipping app root removal due to safety check: ' + AppRoot);
-    AppendUninstallLeftover('Program folder (skipped safety check): ' + AppRoot);
     Exit;
   end;
 
-  if RemoveDir(AppRoot) then
+  ForceCloseNvmProcessesOnUninstall();
+
+  if DelTree(AppRoot, True, True, True) then
   begin
     Log('Removed app root directory: ' + AppRoot);
+
+    if (OrgRoot <> '') and DirExists(OrgRoot) and IsSafeRemovableDirectory(OrgRoot) then
+    begin
+      if RemoveDir(OrgRoot) then
+        Log('Removed empty org root directory: ' + OrgRoot)
+      else
+        Log('Org root not removed (not empty or in use): ' + OrgRoot);
+    end;
+
+    Exit;
+  end;
+
+  Log('App root removal failed after force-close, retrying: ' + AppRoot);
+  ForceCloseNvmProcessesOnUninstall();
+
+  if DelTree(AppRoot, True, True, True) then
+  begin
+    Log('Removed app root directory on retry: ' + AppRoot);
 
     if (OrgRoot <> '') and DirExists(OrgRoot) and IsSafeRemovableDirectory(OrgRoot) then
     begin
@@ -3155,15 +3545,16 @@ begin
   end;
 
   Log('Immediate app root removal failed, scheduling delayed cleanup: ' + AppRoot);
-  AppendUninstallLeftover('Program folder (in use; delete manually after closing terminals): ' + AppRoot);
+  UninstallDelayedCleanupScheduled := True;
 
   AppRootEscaped := EscapeSingleQuotedPowerShellString(AppRoot);
   OrgRootEscaped := EscapeSingleQuotedPowerShellString(OrgRoot);
   CleanupScriptFile := ExpandConstant('{tmp}\nvm-uninstall-app-cleanup.ps1');
   CleanupScript :=
+    BuildStopProcessesUnderRootsPowerShell(AppRoot, RemoveBackslashUnlessRoot(GetInstallRootForUninstall(''))) + #13#10 +
     '$app = ''' + AppRootEscaped + '''' + #13#10 +
     '$org = ''' + OrgRootEscaped + '''' + #13#10 +
-    'Start-Sleep -Seconds 4' + #13#10 +
+    'Start-Sleep -Seconds 2' + #13#10 +
     'if (Test-Path -LiteralPath $app) { Remove-Item -LiteralPath $app -Recurse -Force -ErrorAction SilentlyContinue }' + #13#10 +
     'if ($org -ne '''') {' + #13#10 +
     '  if (Test-Path -LiteralPath $org) {' + #13#10 +
@@ -3230,10 +3621,7 @@ begin
   DeleteFile(RegistryCleanupScriptFile);
 
   if ResultCode <> 0 then
-  begin
     Log('Registry cleanup script returned exit code ' + IntToStr(ResultCode) + '.');
-    AppendUninstallLeftover('Registry cleanup failed (HKCU/HKLM preferences may remain)');
-  end;
 end;
 
 procedure ClearMachineLicensingOnUninstall();
@@ -3251,16 +3639,10 @@ begin
   if Exec(NVMExe, '--clear-machine-licensing', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
     if ResultCode <> 0 then
-    begin
       Log('Machine licensing cleanup returned exit code ' + IntToStr(ResultCode) + '.');
-      AppendUninstallLeftover('Machine licensing keys (HKLM; run uninstall as admin to remove)');
-    end;
   end
   else
-  begin
     Log('Failed to run machine licensing cleanup.');
-    AppendUninstallLeftover('Machine licensing keys (HKLM; run uninstall as admin to remove)');
-  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
@@ -3268,7 +3650,9 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     UninstallAppRoot := ExpandConstant('{app}');
-    UninstallInstallRoot := GetInstallRootForUninstall();
+    UninstallInstallRoot := GetInstallRootForUninstall('');
+    ForceCloseNvmProcessesOnUninstall();
+    CleanupInstallRootOnUninstall();
     RemoveSyncTaskOnUninstall();
     RemoveAllNodeVersionsWindowsAppsEntries();
     ClearMachineLicensingOnUninstall();
