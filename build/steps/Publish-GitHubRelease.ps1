@@ -195,50 +195,329 @@ Preferred flow: create --draft → upload assets → edit --draft=false
 "@
 }
 
+function Get-NvmReleaseNotesFooter {
+	return @"
+
+- https://nvm-windows.com
+- https://docs.nvm-windows.com
+
+> [!IMPORTANT]
+> **`sync.exe` is only necessary when [building from source](https://docs.nvm-windows.com/install/source).**
+"@
+}
+
+function Get-NvmGitHubRepository {
+	if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_REPOSITORY)) {
+		return $env:GITHUB_REPOSITORY.Trim()
+	}
+	$remote = Invoke-GhCapture -GhArgs @("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")
+	if ($remote.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($remote.Text)) {
+		return $remote.Text.Trim()
+	}
+	return "nvm-windows/nvm"
+}
+
+function Get-NvmReleaseHeadRef {
+	if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) {
+		return $env:GITHUB_SHA.Trim()
+	}
+	$git = Get-Command git -ErrorAction SilentlyContinue
+	if ($null -ne $git) {
+		$head = (& git rev-parse HEAD 2>$null)
+		if (-not [string]::IsNullOrWhiteSpace($head)) {
+			return $head.Trim()
+		}
+	}
+	return $null
+}
+
+function Get-NvmPreviousPublishedReleaseTag {
+	param([string]$CurrentTag)
+
+	$list = Invoke-GhCapture -GhArgs @("release", "list", "--limit", "100", "--json", "tagName,isDraft,publishedAt")
+	if ($list.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($list.Text)) {
+		return $null
+	}
+	$releases = @($list.Text | ConvertFrom-Json) |
+		Where-Object { -not $_.isDraft -and -not [string]::IsNullOrWhiteSpace([string]$_.tagName) } |
+		Sort-Object { [datetime]$_.publishedAt } -Descending
+
+	foreach ($release in $releases) {
+		$tagName = [string]$release.tagName
+		if ($tagName -eq $CurrentTag) {
+			continue
+		}
+		return $tagName
+	}
+	return $null
+}
+
+function Get-NvmGitHubCommitRefSha {
+	param(
+		[string]$Repository,
+		[string]$Ref
+	)
+	if ([string]::IsNullOrWhiteSpace($Repository) -or [string]::IsNullOrWhiteSpace($Ref)) {
+		return $null
+	}
+	$encoded = [uri]::EscapeDataString($Ref)
+	$result = Invoke-GhCapture -GhArgs @("api", "repos/$Repository/commits/$encoded", "-q", ".sha")
+	if ($result.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($result.Text)) {
+		return $null
+	}
+	return $result.Text.Trim()
+}
+
+function Get-NvmSubmoduleCommitAtRef {
+	param(
+		[string]$Repository,
+		[string]$Ref,
+		[string]$SubmodulePath
+	)
+	$commitSha = Get-NvmGitHubCommitRefSha -Repository $Repository -Ref $Ref
+	if ([string]::IsNullOrWhiteSpace($commitSha)) {
+		return $null
+	}
+	$treeSha = (Invoke-GhCapture -GhArgs @("api", "repos/$Repository/commits/$commitSha", "-q", ".commit.tree.sha")).Text.Trim()
+	if ([string]::IsNullOrWhiteSpace($treeSha)) {
+		return $null
+	}
+	$treeJson = Invoke-GhCapture -GhArgs @("api", "repos/$Repository/git/trees/$treeSha")
+	if ($treeJson.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($treeJson.Text)) {
+		return $null
+	}
+	$tree = $treeJson.Text | ConvertFrom-Json
+	foreach ($entry in @($tree.tree)) {
+		if ([string]$entry.path -eq $SubmodulePath -and [string]$entry.type -eq "commit") {
+			return [string]$entry.sha
+		}
+	}
+	return $null
+}
+
+function Format-NvmReleaseCommitLine {
+	param(
+		[string]$Repository,
+		$Commit
+	)
+	$sha = [string]$Commit.sha
+	if ([string]::IsNullOrWhiteSpace($sha)) {
+		return $null
+	}
+	$short = if ($sha.Length -gt 7) { $sha.Substring(0, 7) } else { $sha }
+	$message = [string]$Commit.commit.message
+	$subject = ($message -split "`r?`n", 2)[0].Trim()
+	if ([string]::IsNullOrWhiteSpace($subject)) {
+		$subject = "commit"
+	}
+	$author = [string]$Commit.commit.author.name
+	if ([string]::IsNullOrWhiteSpace($author)) {
+		$author = [string]$Commit.author.login
+	}
+	if ([string]::IsNullOrWhiteSpace($author)) {
+		$author = "unknown"
+	}
+	$url = [string]$Commit.html_url
+	if ([string]::IsNullOrWhiteSpace($url)) {
+		$url = "https://github.com/$Repository/commit/$sha"
+	}
+	return "* [[`$short`]($url)] $subject ($author)"
+}
+
+function Get-NvmCompareCommitLines {
+	param(
+		[string]$Repository,
+		[string]$BaseRef,
+		[string]$HeadRef
+	)
+	if ([string]::IsNullOrWhiteSpace($Repository) -or [string]::IsNullOrWhiteSpace($BaseRef) -or [string]::IsNullOrWhiteSpace($HeadRef)) {
+		return @()
+	}
+	if ($BaseRef -eq $HeadRef) {
+		return @()
+	}
+	$range = "$BaseRef...$HeadRef"
+	$result = Invoke-GhCapture -GhArgs @("api", "repos/$Repository/compare/$range")
+	if ($result.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($result.Text)) {
+		Write-Host ("Release notes: unable to compare {0} ({1})" -f $Repository, $result.Text)
+		return @()
+	}
+	$compare = $result.Text | ConvertFrom-Json
+	$lines = New-Object System.Collections.Generic.List[string]
+	foreach ($commit in @($compare.commits)) {
+		$line = Format-NvmReleaseCommitLine -Repository $Repository -Commit $commit
+		if (-not [string]::IsNullOrWhiteSpace($line)) {
+			$lines.Add($line)
+		}
+	}
+	return , $lines
+}
+
+function Get-NvmReleaseCommitSummarySection {
+	param(
+		[string]$Tag,
+		[string]$HeadRef
+	)
+	$mainRepo = Get-NvmGitHubRepository
+	$owner = ($mainRepo -split "/", 2)[0]
+	if ([string]::IsNullOrWhiteSpace($owner)) {
+		$owner = "nvm-windows"
+	}
+	$previousTag = Get-NvmPreviousPublishedReleaseTag -CurrentTag $Tag
+	$previousHead = if ([string]::IsNullOrWhiteSpace($previousTag)) { $null } else { Get-NvmGitHubCommitRefSha -Repository $mainRepo -Ref $previousTag }
+	$currentHead = if (-not [string]::IsNullOrWhiteSpace($HeadRef)) {
+		$HeadRef
+	}
+	else {
+		Get-NvmGitHubCommitRefSha -Repository $mainRepo -Ref $Tag
+	}
+
+	$sections = New-Object System.Collections.Generic.List[string]
+	$repoSections = New-Object System.Collections.Generic.List[object]
+	if (-not [string]::IsNullOrWhiteSpace($previousHead) -and -not [string]::IsNullOrWhiteSpace($currentHead)) {
+		$repoSections.Add([pscustomobject]@{
+			Label      = $mainRepo
+			Repository = $mainRepo
+			Base       = $previousHead
+			Head       = $currentHead
+		})
+	}
+	foreach ($sub in @("cli", "common", "shim", "sync")) {
+		$subRepo = "$owner/$sub"
+		$prevSub = if ($previousHead) { Get-NvmSubmoduleCommitAtRef -Repository $mainRepo -Ref $previousHead -SubmodulePath $sub } else { $null }
+		$headSub = if ($currentHead) { Get-NvmSubmoduleCommitAtRef -Repository $mainRepo -Ref $currentHead -SubmodulePath $sub } else { $null }
+		if ([string]::IsNullOrWhiteSpace($headSub) -or [string]::IsNullOrWhiteSpace($prevSub)) {
+			continue
+		}
+		$repoSections.Add([pscustomobject]@{
+			Label      = $subRepo
+			Repository = $subRepo
+			Base       = $prevSub
+			Head       = $headSub
+		})
+	}
+
+	foreach ($section in $repoSections) {
+		if ([string]::IsNullOrWhiteSpace($section.Head) -or [string]::IsNullOrWhiteSpace($section.Base)) {
+			continue
+		}
+		$lines = Get-NvmCompareCommitLines -Repository $section.Repository -BaseRef $section.Base -HeadRef $section.Head
+		if ($lines.Count -eq 0) {
+			continue
+		}
+		$sections.Add("### $($section.Label)")
+		foreach ($line in $lines) {
+			$sections.Add($line)
+		}
+		$sections.Add("")
+	}
+
+	if ($sections.Count -eq 0) {
+		if ([string]::IsNullOrWhiteSpace($previousTag)) {
+			return "## Commits`n`n_No previous published release to compare._"
+		}
+		return "## Commits`n`n_No commits since $previousTag._"
+	}
+	while ($sections.Count -gt 0 -and [string]::IsNullOrWhiteSpace($sections[$sections.Count - 1])) {
+		$sections.RemoveAt($sections.Count - 1)
+	}
+	return ("## Commits`n`n" + ($sections -join "`n"))
+}
+
+function Build-NvmReleaseNotesBody {
+	param(
+		[string]$Tag,
+		[string]$Version
+	)
+	$noteArches = ($architectures -join ", ")
+	$headRef = Get-NvmReleaseHeadRef
+	$intro = @"
+# NVM for Windows $Tag
+
+Unsigned community build from ``cli/src/manifest.json`` version ``$Version``.
+Architectures: $noteArches.
+
+Assets per arch: Inno Setup installer (``*-setup.exe``) and prebuilt ``sync.exe`` (``*-sync.exe``) for public ``-DownloadSync`` builds.
+"@
+	$commits = Get-NvmReleaseCommitSummarySection -Tag $Tag -HeadRef $headRef
+	$footer = Get-NvmReleaseNotesFooter
+	return ($intro.TrimEnd() + "`n`n" + $commits.TrimEnd() + $footer)
+}
+
+function Set-NvmReleaseNotes {
+	param(
+		[string]$Tag,
+		[string]$Version
+	)
+	$notes = Build-NvmReleaseNotesBody -Tag $Tag -Version $Version
+	$notesFile = Join-Path ([System.IO.Path]::GetTempPath()) ("nvm-release-notes-{0}.md" -f ([guid]::NewGuid().ToString("n")))
+	try {
+		[System.IO.File]::WriteAllText($notesFile, $notes, (New-Object System.Text.UTF8Encoding $false))
+		$edit = Invoke-GhCapture -GhArgs @("release", "edit", $Tag, "--notes-file", $notesFile)
+		if ($edit.ExitCode -ne 0) {
+			throw ("gh release edit {0} --notes-file failed with exit code {1}: {2}" -f $Tag, $edit.ExitCode, $edit.Text)
+		}
+	}
+	finally {
+		if (Test-Path -LiteralPath $notesFile) {
+			Remove-Item -LiteralPath $notesFile -Force -ErrorAction SilentlyContinue
+		}
+	}
+}
+
 function New-NvmDraftRelease {
 	param(
 		[string]$Tag,
 		[string]$Version
 	)
 
-	$noteArches = ($architectures -join ", ")
-	$createArgs = @(
-		"release", "create", $Tag,
-		"--draft",
-		"--title", $Tag,
-		"--notes", ("NVM for Windows {0}`n`nUnsigned community build from ``cli/src/manifest.json`` version ``{1}``.`nArchitectures: {2}.`n`nAssets per arch: Inno Setup installer (`*-setup.exe`) and prebuilt ``sync.exe`` (`*-sync.exe`) for public ``-DownloadSync`` builds." -f $Tag, $Version, $noteArches)
-	)
-	if ($Version -match '(?i)(alpha|beta|rc|preview|pre)') {
-		$createArgs += "--prerelease"
-	}
-
-	Write-Host ("Creating draft release {0}..." -f $Tag)
-	$created = Invoke-GhCapture -GhArgs $createArgs
-	if ($created.ExitCode -eq 0) {
-		if (-not [string]::IsNullOrWhiteSpace($created.Text)) {
-			Write-Host $created.Text
+	$notesFile = Join-Path ([System.IO.Path]::GetTempPath()) ("nvm-release-notes-{0}.md" -f ([guid]::NewGuid().ToString("n")))
+	try {
+		$notesBody = Build-NvmReleaseNotesBody -Tag $Tag -Version $Version
+		[System.IO.File]::WriteAllText($notesFile, $notesBody, (New-Object System.Text.UTF8Encoding $false))
+		$createArgs = @(
+			"release", "create", $Tag,
+			"--draft",
+			"--title", $Tag,
+			"--notes-file", $notesFile
+		)
+		if ($Version -match '(?i)(alpha|beta|rc|preview|pre)') {
+			$createArgs += "--prerelease"
 		}
-		return
-	}
 
-	if (Test-ReleaseExists -Tag $Tag) {
-		Write-Host ("Release {0} already exists after create exit {1}; continuing." -f $Tag, $created.ExitCode)
-		return
-	}
+		Write-Host ("Creating draft release {0}..." -f $Tag)
+		$created = Invoke-GhCapture -GhArgs $createArgs
+		if ($created.ExitCode -eq 0) {
+			if (-not [string]::IsNullOrWhiteSpace($created.Text)) {
+				Write-Host $created.Text
+			}
+			return
+		}
 
-	if ($created.Text -match '(?i)Resource not accessible by integration|HTTP 403') {
-		throw ("{0}`n`nGH_TOKEN cannot create releases (403). Use github.token with contents:write." -f $created.Text)
-	}
+		if (Test-ReleaseExists -Tag $Tag) {
+			Write-Host ("Release {0} already exists after create exit {1}; continuing." -f $Tag, $created.ExitCode)
+			return
+		}
 
-	if ($created.Text -match '(?i)immutable|tag_name was used') {
-		throw ("{0}`n`n{1}" -f $created.Text, (Get-ImmutableTagBurnHint -Tag $Tag))
-	}
+		if ($created.Text -match '(?i)Resource not accessible by integration|HTTP 403') {
+			throw ("{0}`n`nGH_TOKEN cannot create releases (403). Use github.token with contents:write." -f $created.Text)
+		}
 
-	if ($created.Text -match '(?i)creations being restricted|Repository rule') {
-		throw ("{0}`n`nRuleset blocked tag/ref creation. Allow github-actions to create tags, or bypass for this repo." -f $created.Text)
-	}
+		if ($created.Text -match '(?i)immutable|tag_name was used') {
+			throw ("{0}`n`n{1}" -f $created.Text, (Get-ImmutableTagBurnHint -Tag $Tag))
+		}
 
-	throw ("gh release create --draft {0} failed with exit code {1}: {2}" -f $Tag, $created.ExitCode, $created.Text)
+		if ($created.Text -match '(?i)creations being restricted|Repository rule') {
+			throw ("{0}`n`nRuleset blocked tag/ref creation. Allow github-actions to create tags, or bypass for this repo." -f $created.Text)
+		}
+
+		throw ("gh release create --draft {0} failed with exit code {1}: {2}" -f $Tag, $created.ExitCode, $created.Text)
+	}
+	finally {
+		if (Test-Path -LiteralPath $notesFile) {
+			Remove-Item -LiteralPath $notesFile -Force -ErrorAction SilentlyContinue
+		}
+	}
 }
 
 function Get-ReleaseUploadState {
@@ -466,6 +745,8 @@ Nothing to build/publish. Bump cli/src/manifest.json version, or re-run with ove
 		if ($up.ExitCode -ne 0) {
 			throw "gh release upload $tag failed with exit code $($up.ExitCode): $($up.Text)"
 		}
+
+		Set-NvmReleaseNotes -Tag $tag -Version $version
 
 		if ($state.IsDraft) {
 			Publish-NvmDraftRelease -Tag $tag

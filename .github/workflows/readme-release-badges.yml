@@ -1,0 +1,79 @@
+name: Update README release badges
+
+# Release Community Build publishes with github.token, which does not emit release
+# events to other workflows. workflow_run is the primary trigger after publish.
+on:
+  release:
+    types: [published, released, prereleased]
+  workflow_run:
+    workflows: ["Release Community Build"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: readme-release-badges
+  cancel-in-progress: true
+
+jobs:
+  update:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Resolve target branch
+        id: branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_run") {
+            $name = gh repo view "${{ github.repository }}" --json defaultBranchRef -q .defaultBranchRef.name
+          }
+          elseif ("${{ github.event_name }}" -eq "release") {
+            $name = gh repo view "${{ github.repository }}" --json defaultBranchRef -q .defaultBranchRef.name
+          }
+          else {
+            $name = "${{ github.ref_name }}"
+            if ([string]::IsNullOrWhiteSpace($name)) {
+              $name = gh repo view "${{ github.repository }}" --json defaultBranchRef -q .defaultBranchRef.name
+            }
+          }
+          if ([string]::IsNullOrWhiteSpace($name)) {
+            throw "Could not resolve default branch."
+          }
+          Write-Host "Target branch -> $name"
+          "name=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.branch.outputs.name }}
+          token: ${{ github.token }}
+
+      - name: Update README badges
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          & .\build\steps\Update-ReadmeReleaseBadges.ps1
+
+      - name: Commit and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          $status = git status --porcelain README.md
+          if ([string]::IsNullOrWhiteSpace($status)) {
+            Write-Host "No README changes to commit."
+            exit 0
+          }
+
+          git add README.md
+          git commit -m "chore: update README release badges"
+          git push origin HEAD
