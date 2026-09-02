@@ -33,6 +33,26 @@ Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot "..\common.ps1")
 
+function ConvertTo-StringArray {
+	param(
+		[AllowNull()]
+		$Items
+	)
+	if ($null -eq $Items) {
+		return , [string[]]@()
+	}
+	if ($Items -is [string]) {
+		return , [string[]]@($Items)
+	}
+	if ($Items -is [System.Collections.Generic.List[string]]) {
+		return , [string[]]$Items.ToArray()
+	}
+	if ($Items -is [System.Array]) {
+		return , [string[]]@($Items | ForEach-Object { [string]$_ })
+	}
+	return , [string[]]@($Items | ForEach-Object { [string]$_ })
+}
+
 $architectures = @(
 	$Architectures |
 		ForEach-Object { $_.Trim().ToLowerInvariant() } |
@@ -124,7 +144,7 @@ function Get-ReleaseAssetNames {
 	$names = New-Object System.Collections.Generic.List[string]
 	$view = Get-ReleaseView -Tag $Tag -JsonFields "assets"
 	if ($null -eq $view -or $null -eq $view.assets) {
-		return , $names
+		return ConvertTo-StringArray $names
 	}
 	foreach ($a in @($view.assets)) {
 		$n = [string]$a.name
@@ -132,7 +152,7 @@ function Get-ReleaseAssetNames {
 			$names.Add($n)
 		}
 	}
-	return , $names
+	return ConvertTo-StringArray $names
 }
 
 function Test-ReleaseAssetNameMatchesArchitecture {
@@ -163,7 +183,7 @@ function Get-ReleaseAssetsForArchitecture {
 			$matched.Add($name)
 		}
 	}
-	return , $matched
+	return ConvertTo-StringArray $matched
 }
 
 function Write-ReleaseEnv {
@@ -331,16 +351,16 @@ function Get-NvmCompareCommitLines {
 		[string]$HeadRef
 	)
 	if ([string]::IsNullOrWhiteSpace($Repository) -or [string]::IsNullOrWhiteSpace($BaseRef) -or [string]::IsNullOrWhiteSpace($HeadRef)) {
-		return @()
+		return , [string[]]@()
 	}
 	if ($BaseRef -eq $HeadRef) {
-		return @()
+		return , [string[]]@()
 	}
 	$range = "$BaseRef...$HeadRef"
 	$result = Invoke-GhCapture -GhArgs @("api", "repos/$Repository/compare/$range")
 	if ($result.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($result.Text)) {
 		Write-Host ("Release notes: unable to compare {0} ({1})" -f $Repository, $result.Text)
-		return @()
+		return , [string[]]@()
 	}
 	$compare = $result.Text | ConvertFrom-Json
 	$lines = New-Object System.Collections.Generic.List[string]
@@ -350,7 +370,7 @@ function Get-NvmCompareCommitLines {
 			$lines.Add($line)
 		}
 	}
-	return , $lines
+	return ConvertTo-StringArray $lines
 }
 
 function Get-NvmReleaseCommitSummarySection {
@@ -573,7 +593,7 @@ function Get-NvmReleaseUploadPaths {
 
 	$paths = New-Object System.Collections.Generic.List[string]
 	if (-not (Test-Path -LiteralPath $SearchRoot -PathType Container)) {
-		return , $paths
+		return ConvertTo-StringArray $paths
 	}
 
 	Get-ChildItem -LiteralPath $SearchRoot -File -Recurse -ErrorAction SilentlyContinue |
@@ -597,7 +617,7 @@ function Get-NvmReleaseUploadPaths {
 	foreach ($name in ($byName.Keys | Sort-Object)) {
 		$unique.Add([string]$byName[$name])
 	}
-	return , $unique
+	return ConvertTo-StringArray $unique
 }
 
 $tag = Get-NvmReleaseTag -Version $version
