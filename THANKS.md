@@ -11,8 +11,6 @@ Thanks to everyone who has submitted issues on and off GitHub, made suggestions,
 
 ## Contributors
 
-GitHub’s contributor graph (and [contrib.rocks](https://contrib.rocks)) only counts the default branch. The v2 rewrite finally shifted to `main`, so those views drop v1 authors. This page merges commit authors from `master` (v1) and `main` (v2).
-
 <!-- nvm-thanks-contributors:start -->
 _Commit authors on `master` (v1) and `main` (v2), sorted by commit count. Bots omitted. Updated on each community release._
 
