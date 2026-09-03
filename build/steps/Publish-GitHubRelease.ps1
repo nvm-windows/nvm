@@ -341,7 +341,7 @@ function Format-NvmReleaseCommitLine {
 	if ([string]::IsNullOrWhiteSpace($url)) {
 		$url = "https://github.com/$Repository/commit/$sha"
 	}
-	return "* [[`$short`]($url)] $subject ($author)"
+	return "* [``$short``]($url) $subject ($author)"
 }
 
 function Get-NvmCompareCommitLines {
