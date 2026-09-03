@@ -532,6 +532,24 @@ begin
     Result := Trim(NodeStoragePage.Values[0]);
 end;
 
+{ DataRoot is the parent of InstallRoot (.shim / .nodejs / .cache live here). }
+{ Default InstallRoot={app}\installs keeps DataRoot={app}. Custom storage splits them. }
+function GetDataRoot(Param: String): String;
+var
+  InstallRoot: String;
+begin
+  InstallRoot := NormalizePath(GetInstallRoot(''));
+  if InstallRoot = '' then
+  begin
+    Result := ExpandConstant('{app}');
+    Exit;
+  end;
+
+  Result := NormalizePath(ExtractFileDir(InstallRoot));
+  if Result = '' then
+    Result := ExpandConstant('{app}');
+end;
+
 function GetLegacySettingValue(const SettingsText: String; const Key: String): String;
 var
   Normalized: String;
@@ -1038,6 +1056,7 @@ var
   NormalizedLegacyNodePath: String;
   NormalizedCurrentHome: String;
   NormalizedCurrentNodePath: String;
+  NormalizedProgramNodePath: String;
   I: Integer;
   RemoveLegacyHome: Boolean;
   RemoveLegacyNodePath: Boolean;
@@ -1051,7 +1070,9 @@ begin
   NormalizedLegacyHome := NormalizePath(Trim(LegacyInstallDir));
   NormalizedLegacyNodePath := NormalizePath(Trim(LegacySettingsPath));
   NormalizedCurrentHome := NormalizePath(ExpandConstant('{app}'));
-  NormalizedCurrentNodePath := NormalizePath(ExpandConstant('{app}\\.nodejs'));
+  { PATH node entry must track DataRoot (.shim lives there), not always {app}. }
+  NormalizedCurrentNodePath := NormalizePath(AddBackslash(GetDataRoot('')) + '.nodejs');
+  NormalizedProgramNodePath := NormalizePath(ExpandConstant('{app}\\.nodejs'));
 
   RemoveLegacyHome := RemoveLegacyEntries and (NormalizedLegacyHome <> '') and
     (CompareText(NormalizedLegacyHome, NormalizedCurrentHome) <> 0);
@@ -1072,7 +1093,8 @@ begin
       if (CompareText(Segment, '%NVM_HOME%') = 0) or
          (CompareText(Segment, '%NVM_HOME%\\.nodejs') = 0) or
          IsSameExpandedPath(Segment, NormalizedCurrentHome) or
-         IsSameExpandedPath(Segment, NormalizedCurrentNodePath) then
+         IsSameExpandedPath(Segment, NormalizedCurrentNodePath) or
+         IsSameExpandedPath(Segment, NormalizedProgramNodePath) then
         Continue;
     end;
 
@@ -1224,7 +1246,7 @@ begin
   if LegacySymlinkPath = '' then
     Exit;
 
-  NewNodePath := NormalizePath(ExpandConstant('{app}\\.nodejs'));
+  NewNodePath := NormalizePath(AddBackslash(GetDataRoot('')) + '.nodejs');
   if CompareText(LegacySymlinkPath, NewNodePath) = 0 then
     Exit;
 
@@ -1289,7 +1311,7 @@ begin
   if (LegacySettingsPath <> '') and
      not SameText(
        RemoveBackslashUnlessRoot(Trim(LegacySettingsPath)),
-       RemoveBackslashUnlessRoot(ExpandConstant('{app}\.nodejs'))
+       RemoveBackslashUnlessRoot(AddBackslash(GetDataRoot('')) + '.nodejs')
      ) then
     UpgraderArgs := UpgraderArgs + ' --symlink-path "' + LegacySettingsPath + '"';
 
@@ -2264,43 +2286,71 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ShimDir: String;
+  DataShimDir: String;
   ResultCode: Integer;
   UserGrant: String;
 begin
   Result := '';
   NeedsRestart := False;
   ShimDir := ExpandConstant('{app}\.shim');
-  if not DirExists(ShimDir) then
-    Exit;
+  DataShimDir := AddBackslash(GetDataRoot('')) + '.shim';
 
   { Runtime LockShimDirectory makes .shim a protected read-only DACL.
-    Community ProgramRoot == DataRoot, so reinstall extracts node.exe here
-    and Inno reports "create a file in the destination directory: Access is denied."
-    User still has WRITE_DAC, so icacls /reset works without elevation. }
-  if Exec(
-    ExpandConstant('{sys}\icacls.exe'),
-    '"' + ShimDir + '" /reset /T /C /Q',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  ) then
-    Log('PrepareToInstall: reset .shim ACL, icacls exit=' + IntToStr(ResultCode))
-  else
-    Log('PrepareToInstall: icacls /reset failed to start for ' + ShimDir);
+    When DataRoot == {app}, reinstall extracts node.exe here and Inno reports
+    "create a file in the destination directory: Access is denied."
+    User still has WRITE_DAC, so icacls /reset works without elevation.
+    When DataRoot differs, unlock both ProgramRoot and DataRoot shim dirs. }
+  if DirExists(ShimDir) then
+  begin
+    if Exec(
+      ExpandConstant('{sys}\icacls.exe'),
+      '"' + ShimDir + '" /reset /T /C /Q',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) then
+      Log('PrepareToInstall: reset .shim ACL, icacls exit=' + IntToStr(ResultCode))
+    else
+      Log('PrepareToInstall: icacls /reset failed to start for ' + ShimDir);
 
-  UserGrant := '"' + ShimDir + '" /grant:r "' + GetUserNameString + ':(OI)(CI)(F)" /T /C /Q';
-  if Exec(
-    ExpandConstant('{sys}\icacls.exe'),
-    UserGrant,
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  ) then
-    Log('PrepareToInstall: grant .shim write, icacls exit=' + IntToStr(ResultCode))
-  else
-    Log('PrepareToInstall: icacls /grant failed to start for ' + ShimDir);
+    UserGrant := '"' + ShimDir + '" /grant:r "' + GetUserNameString + ':(OI)(CI)(F)" /T /C /Q';
+    if Exec(
+      ExpandConstant('{sys}\icacls.exe'),
+      UserGrant,
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) then
+      Log('PrepareToInstall: grant .shim write, icacls exit=' + IntToStr(ResultCode))
+    else
+      Log('PrepareToInstall: icacls /grant failed to start for ' + ShimDir);
+  end;
+
+  if (CompareText(NormalizePath(ShimDir), NormalizePath(DataShimDir)) <> 0) and DirExists(DataShimDir) then
+  begin
+    if Exec(
+      ExpandConstant('{sys}\icacls.exe'),
+      '"' + DataShimDir + '" /reset /T /C /Q',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) then
+      Log('PrepareToInstall: reset DataRoot .shim ACL, icacls exit=' + IntToStr(ResultCode));
+
+    UserGrant := '"' + DataShimDir + '" /grant:r "' + GetUserNameString + ':(OI)(CI)(F)" /T /C /Q';
+    if Exec(
+      ExpandConstant('{sys}\icacls.exe'),
+      UserGrant,
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) then
+      Log('PrepareToInstall: grant DataRoot .shim write, icacls exit=' + IntToStr(ResultCode));
+  end;
 end;
 
 procedure InitializeWizard;
@@ -2407,6 +2457,7 @@ begin
   Result :=
     'NVM for Windows will be installed with the following settings:' + NewLine + NewLine +
     Space + 'Node.js storage: ' + GetInstallRoot('') + NewLine +
+    Space + 'Runtime data root: ' + GetDataRoot('') + NewLine +
     Space + 'Operating mode: ' + Mode + NewLine + NewLine +
     Space + 'Keep downloaded Node.js setup files (cache for reinstall): ';
   if (PreferencesPage <> nil) and PreferencesPage.Values[0] then
@@ -2515,10 +2566,90 @@ begin
   BroadcastEnvironmentChange();
 end;
 
+{ When InstallRoot is customized, DataRoot leaves {app}. Seed runtime .shim + proxy }
+{ so PATH/.nodejs match where nvm use / reshim write shims (closes #1388). }
+procedure EnsureDataRootRuntimeLayout();
+var
+  DataRoot: String;
+  ProgramRoot: String;
+  ProgramShim: String;
+  DataShim: String;
+  ProgramProxy: String;
+  DataProxy: String;
+  ResultCode: Integer;
+begin
+  DataRoot := NormalizePath(GetDataRoot(''));
+  ProgramRoot := NormalizePath(ExpandConstant('{app}'));
+  ProgramShim := AddBackslash(ProgramRoot) + '.shim';
+  DataShim := AddBackslash(DataRoot) + '.shim';
+  ProgramProxy := ExpandConstant('{app}\utils\proxy.exe');
+  DataProxy := AddBackslash(DataRoot) + 'proxy.exe';
+
+  AppendInstallLog('EnsureDataRootRuntimeLayout: ProgramRoot=' + ProgramRoot);
+  AppendInstallLog('EnsureDataRootRuntimeLayout: DataRoot=' + DataRoot);
+
+  if not ForceDirectories(DataShim) then
+  begin
+    AppendInstallLogWarn('EnsureDataRootRuntimeLayout: could not create ' + DataShim);
+    Exit;
+  end;
+
+  if CompareText(ProgramRoot, DataRoot) = 0 then
+  begin
+    AppendInstallLog('EnsureDataRootRuntimeLayout: DataRoot equals ProgramRoot, no seed copy needed');
+    Exit;
+  end;
+
+  if DirExists(ProgramShim) then
+  begin
+    if not Exec(
+      'robocopy.exe',
+      '"' + ProgramShim + '" "' + DataShim + '" /E /MT:8 /R:1 /W:1 /NP /NFL /NDL /NJH /NJS',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) then
+      AppendInstallLogWarn('EnsureDataRootRuntimeLayout: robocopy seed failed to start')
+    else if ResultCode >= 8 then
+      AppendInstallLogWarn('EnsureDataRootRuntimeLayout: robocopy seed exit=' + IntToStr(ResultCode))
+    else
+      AppendInstallLog('EnsureDataRootRuntimeLayout: seeded DataRoot .shim from ProgramRoot');
+  end
+  else
+    AppendInstallLogWarn('EnsureDataRootRuntimeLayout: missing ProgramRoot .shim: ' + ProgramShim);
+
+  { Hardlinks to proxy require same volume; certified also keeps proxy on DataRoot. }
+  if FileExists(ProgramProxy) then
+  begin
+    if not FileCopy(ProgramProxy, DataProxy, False) then
+      AppendInstallLogWarn('EnsureDataRootRuntimeLayout: failed to copy proxy.exe to DataRoot')
+    else
+      AppendInstallLog('EnsureDataRootRuntimeLayout: copied proxy.exe to ' + DataProxy);
+  end;
+
+  { Drop stale ProgramRoot .nodejs so PATH/docs don't point at the empty seed tree. }
+  if DirExists(AddBackslash(ProgramRoot) + '.nodejs') then
+  begin
+    if not Exec(
+      ExpandConstant('{cmd}'),
+      '/C rmdir "' + AddBackslash(ProgramRoot) + '.nodejs"',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) then
+      AppendInstallLogWarn('EnsureDataRootRuntimeLayout: failed to remove stale ProgramRoot .nodejs')
+    else
+      AppendInstallLog('EnsureDataRootRuntimeLayout: removed stale ProgramRoot .nodejs junction');
+  end;
+end;
+
 function EnsureShimModeNodePathJunction(): Boolean;
 var
   NodePath: String;
   ShimPath: String;
+  DataRoot: String;
   CommandLine: String;
   ResultCode: Integer;
 begin
@@ -2527,8 +2658,9 @@ begin
   if not IsShimModeSelected() then
     Exit;
 
-  NodePath := ExpandConstant('{app}\.nodejs');
-  ShimPath := ExpandConstant('{app}\.shim');
+  DataRoot := NormalizePath(GetDataRoot(''));
+  NodePath := AddBackslash(DataRoot) + '.nodejs';
+  ShimPath := AddBackslash(DataRoot) + '.shim';
   AppendInstallLog('EnsureShimModeNodePathJunction: source=' + ShimPath + ' target=' + NodePath);
 
   if not DirExists(ShimPath) then
@@ -2561,7 +2693,7 @@ begin
     Exit;
   end;
 
-  AppendInstallLog('EnsureShimModeNodePathJunction: created hidden .nodejs -> .shim');
+  AppendInstallLog('EnsureShimModeNodePathJunction: created hidden .nodejs -> .shim under DataRoot');
 end;
 
 procedure RegisterInstalledVersionsInWindowsApps();
@@ -2611,10 +2743,18 @@ var
   ResultCode: Integer;
   ShimPath: String;
   ProxyPath: String;
+  DataRoot: String;
+  DataShim: String;
   CommandLine: String;
 begin
-  ShimPath := ExpandConstant('{app}\.shim\' + ShimBaseName + '.exe');
-  ProxyPath := ExpandConstant('{app}\utils\proxy.exe');
+  DataRoot := NormalizePath(GetDataRoot(''));
+  DataShim := AddBackslash(DataRoot) + '.shim';
+  ShimPath := AddBackslash(DataShim) + ShimBaseName + '.exe';
+
+  { Prefer DataRoot proxy when present (required for cross-volume hardlinks). }
+  ProxyPath := AddBackslash(DataRoot) + 'proxy.exe';
+  if not FileExists(ProxyPath) then
+    ProxyPath := ExpandConstant('{app}\utils\proxy.exe');
 
   if FileExists(ShimPath) then
     Exit;
@@ -2625,9 +2765,9 @@ begin
     Exit;
   end;
 
-  if not DirExists(ExpandConstant('{app}\.shim')) then
+  if not DirExists(DataShim) then
   begin
-    AppendInstallLogWarn('EnsureShimHardlinkForPrewarm: missing .shim directory');
+    AppendInstallLogWarn('EnsureShimHardlinkForPrewarm: missing .shim directory: ' + DataShim);
     Exit;
   end;
 
@@ -2650,10 +2790,12 @@ end;
 procedure TryPrewarmShim(const ShimBaseName: String);
 var
   ResultCode: Integer;
+  ShimPath: String;
 begin
   ResultCode := -1;
+  ShimPath := AddBackslash(GetDataRoot('')) + '.shim\' + ShimBaseName + '.exe';
   if Exec(
-    ExpandConstant('{app}\.shim\' + ShimBaseName + '.exe'),
+    ShimPath,
     '--version',
     '',
     SW_HIDE,
@@ -2738,6 +2880,7 @@ begin
   AppendInstallLog('CurStepChanged: ssPostInstall start');
   AppendInstallLog('CurStepChanged: app=' + ExpandConstant('{app}'));
   AppendInstallLog('CurStepChanged: install root=' + GetInstallRoot(''));
+  AppendInstallLog('CurStepChanged: data root=' + GetDataRoot(''));
   AppendInstallLog('CurStepChanged: LegacyInstallDir=' + LegacyInstallDir);
   AppendInstallLog('CurStepChanged: LegacySettingsRoot=' + LegacySettingsRoot);
   AppendInstallLog('CurStepChanged: LegacySettingsPath=' + LegacySettingsPath);
@@ -2777,6 +2920,7 @@ begin
 
     FinalizingStep := FinalizingStep + 1;
     UpdateFinalizingProgress(FinalizingPage, 'Configuring internal Node.js shim junction...', FinalizingStep, FinalizingTotal);
+    EnsureDataRootRuntimeLayout();
     if not EnsureShimModeNodePathJunction() then
       MsgBox(
         'NVM for Windows could not create the internal .nodejs junction required for shim mode.' + #13#10 + #13#10 +
