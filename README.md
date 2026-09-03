@@ -39,6 +39,9 @@ NVM for Windows manages Windows installations of Node.js. The supported standard
 installation uses user-local directories, per-user registry settings, and the user PATH;
 it does not require administrator rights when the selected locations are writable.
 
+The published installer in this branch is intentionally user-only. A separate system/all-users
+installer is not selected automatically and is outside this user-mode change.
+
 Event Log source registration is an optional administrative enhancement and is not required
 for normal NVM operation. Legacy machine-level settings from NVM v1 may remain in place when
 the installer is run by a standard user; the installer reports those leftovers instead of

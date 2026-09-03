@@ -2477,7 +2477,7 @@ begin
   Result := Result + NewLine + Space + 'Announcements email: ' + Email;
 
   Result := Result + NewLine + NewLine +
-    'Note: You may be prompted to allow NVM for Windows to register as a Windows event source.';
+    'Note: Windows Event Log source registration is optional and is not performed during setup.';
 
   if IsPreV2Upgrade then
     Result := Result + NewLine + NewLine +
