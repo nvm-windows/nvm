@@ -177,7 +177,6 @@ var
   InstallCompleted: Boolean;
   RemoveLegacyTasks: Boolean;
   IsPreV2Upgrade: Boolean;
-  IsConcreteLegacyUpgrade: Boolean;
   LegacyInstallDir: String;
   LegacySettingsLoaded: Boolean;
   LegacySettingsRoot: String;
@@ -221,6 +220,11 @@ procedure SplitPathString(const PathStr: String; var Segments: TArrayOfString); 
 function ExpandPathSegment(const Segment: String): String; forward;
 function GetInstallRootForUninstall(Param: String): String; forward;
 procedure ForceCloseNvmProcessesOnUninstall(); forward;
+function BuildCleanedPath(
+  const OriginalPath: String;
+  const RemoveLegacyEntries: Boolean;
+  const ShouldPrependCurrentNvm: Boolean
+): String; forward;
 
 procedure BroadcastEnvironmentChange();
 var
@@ -496,8 +500,8 @@ end;
 
 procedure DeleteLegacySymlinkEnv();
 begin
+  { Only user-scoped state may be changed during standard-user setup. }
   RegDeleteValue(HKCU, 'Environment', 'NVM_SYMLINK');
-  RegDeleteValue(HKLM, 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment', 'NVM_SYMLINK');
 end;
 
 procedure CaptureLegacyActiveVersionFromSymlink();
@@ -1284,85 +1288,70 @@ begin
     AppendLegacyCleanupWarning('Could not remove the legacy symlink path: ' + LegacySymlinkPath + ' (exit code ' + IntToStr(ResultCode) + ').');
 end;
 
-{ ── Elevated migration helper ────────────────────────────────────────────── }
-
-{ Run nvm-upgrader.exe (elevated) to perform all privileged v1-cleanup tasks  }
-{ in a single UAC prompt: remove NVM_SYMLINK/NVM_HOME env vars from user and  }
-{ system environments, strip v1 PATH entries from both, delete v1 uninstall   }
-{ registry keys, remove the old install directory, and register the Windows   }
-{ Event Log source in the new nvm.exe.                                         }
-procedure RunUpgraderHelper();
+{ ── Non-elevated legacy migration checks ─────────────────────────────────── }
+{ Machine-scoped state is reported, never modified, during standard-user setup. }
+procedure DetectLegacyMachineState();
 var
-  UpgraderArgs: String;
-  ResultCode: Integer;
-  ElevatedExecOk: Boolean;
+  MachineHome: String;
+  MachineSymlink: String;
+  MachinePath: String;
+  CleanedMachinePath: String;
+  UpperMachinePath: String;
 begin
-  UpgraderArgs := '';
+  if not IsPreV2Upgrade then
+    Exit;
 
-  { Pass --install-dir only when the v1 location differs from the new install directory. }
-  if (LegacyInstallDir <> '') and
-     not SameText(
-       RemoveBackslashUnlessRoot(Trim(LegacyInstallDir)),
-       RemoveBackslashUnlessRoot(ExpandConstant('{app}'))
+  { Reads are safe for standard users; no machine-scoped state is modified here. }
+  if RegQueryStringValue(
+       HKLM,
+       'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment',
+       'NVM_HOME',
+       MachineHome
      ) then
-    UpgraderArgs := UpgraderArgs + ' --install-dir "' + LegacyInstallDir + '"';
-
-  { Pass --symlink-path only when it differs from the new .nodejs junction. }
-  if (LegacySettingsPath <> '') and
-     not SameText(
-       RemoveBackslashUnlessRoot(Trim(LegacySettingsPath)),
-       RemoveBackslashUnlessRoot(AddBackslash(GetDataRoot('')) + '.nodejs')
-     ) then
-    UpgraderArgs := UpgraderArgs + ' --symlink-path "' + LegacySettingsPath + '"';
-
-  UpgraderArgs := UpgraderArgs + ' --new-nvm "' + ExpandConstant('{app}\{#Alias}.exe') + '"';
-  UpgraderArgs := Trim(UpgraderArgs);
-
-  AppendInstallLog('RunUpgraderHelper: args=' + UpgraderArgs);
-
-  ElevatedExecOk := ShellExec(
-    'runas',
-    ExpandConstant('{tmp}\nvm-upgrader.exe'),
-    UpgraderArgs,
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  );
-
-  if not ElevatedExecOk then
-  begin
-    AppendInstallLogWarn('RunUpgraderHelper: ShellExec failed, code=' + IntToStr(ResultCode));
-    if ResultCode = 1223 then
-      MsgBox(
-        'NVM for Windows could not run the v1 migration cleanup helper because the UAC prompt was canceled.' + #13#10 + #13#10 +
-        'Your previous NVM v1 installation may leave behind environment variables (NVM_HOME, NVM_SYMLINK)' + #13#10 +
-        'and PATH entries that could conflict with NVM for Windows 2.' + #13#10 + #13#10 +
-        'To clean up manually: Start > "Edit the system environment variables" > Environment Variables' + #13#10 +
-        '> delete NVM_HOME and NVM_SYMLINK from System variables, and remove any references to' + #13#10 +
-        'those variables from the System PATH.' + #13#10 + #13#10 +
-        'Event Log registration can be completed later from an elevated terminal:' + #13#10 +
-        ExpandConstant('{app}\{#Alias}.exe') + ' --register-eventlog',
-        mbInformation,
-        MB_OK
-      )
-    else
-      AppendInstallLogWarn(
-        'RunUpgraderHelper: elevation failed with system error ' + IntToStr(ResultCode)
-      );
-  end
-  else if ResultCode <> 0 then
-  begin
-    AppendInstallLogWarn('RunUpgraderHelper: helper exited with code ' + IntToStr(ResultCode));
-    MsgBox(
-      'The NVM v1 migration cleanup helper exited with an unexpected code (' + IntToStr(ResultCode) + ').' + #13#10 + #13#10 +
-      'Some v1 leftovers (environment variables, PATH entries, or the old install folder) may not have been removed.' + #13#10 + #13#10 +
-      'Check the log for details:' + #13#10 +
-      ExpandConstant('{app}\upgrade.log'),
-      mbInformation,
-      MB_OK
+    AppendLegacyCleanupWarning(
+      'Machine NVM_HOME is still set to "' + MachineHome + '". It was not removed because administrator permission is required.'
     );
+
+  if RegQueryStringValue(
+       HKLM,
+       'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment',
+       'NVM_SYMLINK',
+       MachineSymlink
+     ) then
+    AppendLegacyCleanupWarning(
+      'Machine NVM_SYMLINK is still set to "' + MachineSymlink + '". It was not removed because administrator permission is required.'
+    );
+
+  if RegQueryStringValue(
+       HKLM,
+       'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment',
+       'Path',
+       MachinePath
+     ) then
+  begin
+    CleanedMachinePath := BuildCleanedPath(MachinePath, True, False);
+    UpperMachinePath := UpperCase(MachinePath);
+    if (Pos('%NVM_HOME%', UpperMachinePath) > 0) or
+       (Pos('%NVM_SYMLINK%', UpperMachinePath) > 0) or
+       (CompareText(CleanedMachinePath, MachinePath) <> 0) then
+      AppendLegacyCleanupWarning(
+        'The machine PATH contains legacy NVM entries. They were not removed because administrator permission is required.'
+      );
   end;
+
+  if RegValueExists(
+       HKLM,
+       'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\nvm_is1',
+       'DisplayVersion'
+     ) or
+     RegValueExists(
+       HKLM,
+       'Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\nvm_is1',
+       'DisplayVersion'
+     ) then
+    AppendLegacyCleanupWarning(
+      'A machine-level NVM v1 uninstall entry remains. It was not removed because administrator permission is required.'
+    );
 end;
 
 function GetOperatingModeRegistryValue(Param: String): String;
@@ -2239,7 +2228,6 @@ begin
     if (ExistingMajorVersion >= 0) and (ExistingMajorVersion < 2) then
     begin
       IsPreV2Upgrade := True;
-      IsConcreteLegacyUpgrade := True;
       RemoveLegacyTasks := True;
       V1NodeRoot := GetLegacyV1NodeStorageRoot();
       if V1NodeRoot <> '' then
@@ -2271,9 +2259,6 @@ begin
     V1NodeRoot := GetLegacyV1NodeStorageRoot();
     if V1NodeRoot <> '' then
       PreviousInstallRoot := V1NodeRoot;
-
-    if ExistingVersion <> '' then
-      IsConcreteLegacyUpgrade := True;
 
     if not ConfirmExistingInstallMigration(ExistingVersion) then
       Result := False;
@@ -2672,8 +2657,8 @@ begin
 
   CommandLine :=
     '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ' +
-    '"$target = ''' + NodePath + '''; ' +
-    '$source = ''' + ShimPath + '''; ' +
+    '"$target = ''' + EscapeSingleQuotedPowerShellString(NodePath) + '''; ' +
+    '$source = ''' + EscapeSingleQuotedPowerShellString(ShimPath) + '''; ' +
     'if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Force -Recurse -ErrorAction Stop }; ' +
     'New-Item -ItemType Junction -Path $target -Target $source -Force -ErrorAction Stop | Out-Null; ' +
     '(Get-Item -LiteralPath $target -Force -ErrorAction Stop).Attributes = ' +
@@ -2773,8 +2758,8 @@ begin
 
   CommandLine :=
     '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ' +
-    '"$shim = ''' + ShimPath + '''; ' +
-    '$proxy = ''' + ProxyPath + '''; ' +
+    '"$shim = ''' + EscapeSingleQuotedPowerShellString(ShimPath) + '''; ' +
+    '$proxy = ''' + EscapeSingleQuotedPowerShellString(ProxyPath) + '''; ' +
     'if (-not (Test-Path -LiteralPath $shim)) { New-Item -ItemType HardLink -Path $shim -Target $proxy -ErrorAction Stop | Out-Null }"';
 
   if not Exec(ExpandConstant('{cmd}'), CommandLine, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
@@ -2849,7 +2834,6 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
-  ElevatedExecOk: Boolean;
   FinalizingPage: TOutputProgressWizardPage;
   FinalizingStep: Integer;
   FinalizingTotal: Integer;
@@ -2863,7 +2847,8 @@ begin
   if CurStep <> ssPostInstall then
     Exit;
 
-  FinalizingTotal := 7;
+  { Eight ordinary finalization actions; the optional task adds one. }
+  FinalizingTotal := 6;
   if RemoveLegacyTasks then
     FinalizingTotal := FinalizingTotal + 1;
   FinalizingTotal := FinalizingTotal + 1;  { for AUMID configuration }
@@ -2934,49 +2919,27 @@ begin
 
     if IsPreV2Upgrade then
     begin
-      { For v1 upgrades: one UAC prompt covers all privileged cleanup + event log registration. }
-      { The helper clears NVM_HOME/NVM_SYMLINK from user+system env and PATH, removes the old  }
-      { uninstall keys and install directory, then runs nvm.exe --register-eventlog internally. }
-      UpdateFinalizingProgress(FinalizingPage, 'Running v1 migration cleanup (UAC prompt may appear)...', FinalizingStep, FinalizingTotal);
-      RunUpgraderHelper();
-      { Re-establish the new v2 NVM_HOME in user env and user PATH after the helper cleared them. }
+      { User-scoped migration is performed without elevation. Machine-level leftovers }
+      { are detected and reported, but never trigger an administrator prompt. }
+      UpdateFinalizingProgress(FinalizingPage, 'Checking legacy machine settings...', FinalizingStep, FinalizingTotal);
+      DetectLegacyMachineState();
       EnsureNvmPathPriority();
     end
     else
     begin
       EnsureNvmPathPriority();
-
-      FinalizingStep := FinalizingStep + 1;
-      UpdateFinalizingProgress(FinalizingPage, 'Registering Windows Event Log source (UAC prompt may appear)...', FinalizingStep, FinalizingTotal);
-
-      ElevatedExecOk := ShellExec(
-        'runas',
-        ExpandConstant('{app}\{#Alias}.exe'),
-        '--register-eventlog',
-        '',
-        SW_HIDE,
-        ewWaitUntilTerminated,
-        ResultCode
-      );
-
-      { Event source registration is best-effort. Non-admin / declined UAC is expected;
-        continue install silently — logs still work as "Unknown" source in Event Viewer. }
-      if not ElevatedExecOk then
-      begin
-        if ResultCode = 1223 then
-          AppendInstallLogWarn('Event Log source registration skipped: UAC prompt canceled')
-        else
-          AppendInstallLogWarn(
-            'Event Log source registration skipped: elevation failed (system error ' + IntToStr(ResultCode) + ')'
-          );
-      end
-      else if ResultCode <> 0 then
-        AppendInstallLogWarn(
-          'Event Log source registration returned exit code ' + IntToStr(ResultCode)
-        )
-      else
-        AppendInstallLog('Event Log source registered successfully');
+      AppendInstallLog('Event Log source registration skipped: optional privileged operation; run nvm --register-eventlog explicitly if required.');
     end;
+
+    if HasLegacyCleanupWarnings() then
+      SuppressibleMsgBox(
+        'NVM for Windows was installed for the current user, but some machine-level NVM v1 state remains.' + #13#10 + #13#10 +
+        LegacyCleanupWarnings + #13#10 + #13#10 +
+        'Installation succeeded. An administrator can remove these leftovers later if they conflict with other Node.js installations.',
+        mbInformation,
+        MB_OK,
+        IDOK
+      );
 
     FinalizingStep := FinalizingStep + 1;
     UpdateFinalizingProgress(FinalizingPage, 'Configuring notification center integration...', FinalizingStep, FinalizingTotal);

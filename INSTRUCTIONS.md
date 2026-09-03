@@ -56,5 +56,6 @@ Successful full build:
 ## Troubleshooting
 
 - Installer fails: confirm `cli/src/manifest.json` has `version`, `appUserModelId`, `appId`, and Inno Setup 6.7.1+ (`ISCC.exe`) is installed.
+- Zero-admin installer contract: run `pwsh -File .\tests\installer\test-zero-admin-contract.ps1`. This is a source-level check and does not build or launch the installer.
 - Sync build fails on `enhanced/`: community script rewrites `sync/src/go.mod` for the stub `common/mirrorauth` during the build and restores it after. Do not commit a dirty `sync/src/go.mod`.
 - CI: see [build/README.md](build/README.md).

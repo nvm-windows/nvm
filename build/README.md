@@ -82,7 +82,7 @@ Inputs:
 | `release` | `latest` | `latest` = newest stable GitHub Release (no drafts/pre-releases). `custom` = use `release_tag`. |
 | `release_tag` | empty | Tag for `custom` (e.g. `v2.0.0-alpha.2`). Ignored when `release=latest`. |
 | `dry_run` | true | **On:** generate manifest, `winget validate`, upload artifact — no PR. **Off:** submit to `microsoft/winget-pkgs` (public repo + `WINGET_CREATE_GITHUB_TOKEN`). |
-| `install_test` | true | Silent install smoke test via local `release-assets` installer (not `winget install`). 4 min process timeout + 5 min step cap. Warns/skips on failure; never fails dry-run. |
+| `install_test` | true | Silent install smoke test via local `release-assets` installer (not `winget install`). 4 min process timeout + 5 min step cap. Failures fail the workflow; this test is intended to cover the user-local, no-elevation contract. |
 | `verify_public_urls` | true | Anonymous GitHub release download + SHA256 must match manifest hashes. Fails workflow on mismatch (dry-run or publish). |
 
 ### Secrets

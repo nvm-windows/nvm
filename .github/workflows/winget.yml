@@ -22,7 +22,7 @@ on:
         default: true
         type: boolean
       install_test:
-        description: "Best-effort silent install smoke test using release asset already on runner (not winget install). Warns and skips on failure; never fails dry-run."
+        description: "Silent install smoke test using release asset already on runner (not winget install). Fails on install or runtime validation errors."
         required: true
         default: true
         type: boolean
@@ -59,8 +59,14 @@ jobs:
         with:
           sparse-checkout: |
             build/steps/New-WingetManifest.ps1
+            installer/setup.iss
+            tests/installer/test-zero-admin-contract.ps1
             LICENSE
           sparse-checkout-cone-mode: false
+
+      - name: Validate zero-admin installer contract
+        shell: pwsh
+        run: .\tests\installer\test-zero-admin-contract.ps1
 
       - name: Resolve release tag
         id: meta
@@ -193,9 +199,8 @@ jobs:
         if: inputs.install_test == true
         timeout-minutes: 5
         run: |
-          function Write-InstallTestSkipped([string]$Reason) {
-            Write-Warning "Install smoke test skipped: $Reason"
-            "ran=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          function Fail-InstallTest([string]$Reason) {
+            throw "Install smoke test prerequisite failed: $Reason"
           }
 
           # Run the amd64 Inno installer from release-assets (already downloaded above).
@@ -204,32 +209,27 @@ jobs:
           $version = $env:RELEASE_TAG.Trim() -replace '^[vV]', ''
           $installer = Join-Path $PWD "release-assets\nvm-$version-amd64-setup.exe"
           if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
-            Write-InstallTestSkipped "release asset missing: $installer"
-            exit 0
+            Fail-InstallTest "release asset missing: $installer"
           }
 
           Write-Host "Running local installer smoke test -> $installer"
           $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru -NoNewWindow
           if (-not $proc.WaitForExit(240000)) {
             try { $proc.Kill($true) } catch { $proc.Kill() }
-            Write-InstallTestSkipped "installer did not finish within 4 minutes."
-            exit 0
+            throw "Installer did not finish within 4 minutes."
           }
           if ($proc.ExitCode -ne 0) {
-            Write-InstallTestSkipped "installer exited with code $($proc.ExitCode)."
-            exit 0
+            throw "Installer exited with code $($proc.ExitCode)."
           }
 
           $nvm = Join-Path $env:LOCALAPPDATA 'Author Software\nvm\nvm.exe'
           if (-not (Test-Path -LiteralPath $nvm -PathType Leaf)) {
-            Write-InstallTestSkipped "nvm.exe missing after install."
-            exit 0
+            throw "nvm.exe missing after install."
           }
 
           & $nvm --version 2>&1 | Write-Host
           if ($LASTEXITCODE -ne 0) {
-            Write-InstallTestSkipped "nvm --version failed after install."
-            exit 0
+            throw "nvm --version failed after install."
           }
 
           Write-Host "Install smoke test passed."

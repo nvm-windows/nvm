@@ -8,6 +8,7 @@
 !build/.zigversion
 bin
 *.ps1
+!tests/installer/test-zero-admin-contract.ps1
 !build.ps1
 !build/
 !build/**/

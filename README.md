@@ -33,6 +33,24 @@ _The original [nvm](https://github.com/nvm-sh/nvm) is a completely separate proj
 |Native&nbsp;Integrations<br/><br/><br/><br/>|&bull; Windows Apps<br/>&bull; Logging (Windows Event Viewer)<br/>&bull; Windows Registry<br/>&bull; Desktop Notification Center|
 |Customization<br/><br/><br/>|&bull; User-defined aliases.<br/>&bull; User-defined default global modules.<br/>&bull; Configure local (air-gapped) downloads.|
 
+## Installation boundaries
+
+NVM for Windows manages Windows installations of Node.js. The supported standard-user
+installation uses user-local directories, per-user registry settings, and the user PATH;
+it does not require administrator rights when the selected locations are writable.
+
+Event Log source registration is an optional administrative enhancement and is not required
+for normal NVM operation. Legacy machine-level settings from NVM v1 may remain in place when
+the installer is run by a standard user; the installer reports those leftovers instead of
+requesting elevation.
+
+The default shim mode is the standard-user switching mechanism. Link mode uses Windows
+junctions/symlinks where supported and may require Developer Mode or administrator rights.
+
+WSL is outside the scope of NVM for Windows runtime management. Inside WSL, install and use
+[nvm-sh](https://github.com/nvm-sh/nvm); NVM for Windows and nvm-sh manage separate Node.js
+environments.
+
 ### Certified Builds
 
 Commercial **[Certified Builds](https://docs.nvm-windows.com/guide/builds/)** are coming in September 2026 for controlled environments. <a href="https://list.author.sh/subscription/form" target="_blank">Get notified</a>
