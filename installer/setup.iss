@@ -1425,10 +1425,13 @@ begin
     'Your prior settings and Node.js versions will be migrated.' + #13#10#13#10 +
     'Do you want to continue?';
 
-  Result := MsgBox(
+  { SuppressibleMsgBox honors /SUPPRESSMSGBOXES and silent installs; default Yes. }
+  { Interactive installs still default to No via MB_DEFBUTTON2. }
+  Result := SuppressibleMsgBox(
     Prompt,
     mbConfirmation,
-    MB_YESNO or MB_DEFBUTTON2
+    MB_YESNO or MB_DEFBUTTON2,
+    IDYES
   ) = IDYES;
 end;
 
@@ -1749,7 +1752,8 @@ function CopyTreeWithProgress(
   const SourceDir, DestDir: String;
   ProgressPage: TOutputProgressWizardPage;
   var CopiedCount: Integer;
-  const TotalCount: Integer
+  const TotalCount: Integer;
+  const VersionLabel: String
 ): Boolean;
 var
   ResultCode: Integer;
@@ -1757,6 +1761,7 @@ var
   SourceFileCount: Integer;
   SourceArg: String;
   DestArg: String;
+  ProgressSubText: String;
 begin
   Result := True;
 
@@ -1776,17 +1781,23 @@ begin
 
   if ProgressPage <> nil then
   begin
+    if Trim(VersionLabel) <> '' then
+      ProgressSubText := 'Copying ' + Trim(VersionLabel) + '...'
+    else
+      ProgressSubText := 'Copying existing Node.js installations...';
+
     ProgressPage.SetText(
       'Migrating Node.js versions',
-      'Copying existing Node.js installations...'
+      ProgressSubText
     );
     ProgressPage.SetProgress(CopiedCount, TotalCount);
   end;
 
+  { Drop /V: verbose lines go to a hidden console (SW_HIDE), not the wizard or install.log. }
   ExecResult :=
     Exec(
       'robocopy.exe',
-      '"' + SourceArg + '" "' + DestArg + '" /E /MT:16 /R:1 /W:1 /V /NP /XJF /XJD /SJ',
+      '"' + SourceArg + '" "' + DestArg + '" /E /MT:16 /R:1 /W:1 /NP /XJF /XJD /SJ',
       '',
       SW_HIDE,
       ewWaitUntilTerminated,
@@ -1924,7 +1935,7 @@ begin
             TargetVersionDir := AddBackslash(TargetRoot) + FindRec.Name;
             AppendInstallLog('MigrateNodeStorageIfNeeded: copying version directory ' + FindRec.Name);
 
-            if not CopyTreeWithProgress(SourceVersionDir, TargetVersionDir, ProgressPage, CopiedCount, FileCount) then
+            if not CopyTreeWithProgress(SourceVersionDir, TargetVersionDir, ProgressPage, CopiedCount, FileCount, FindRec.Name) then
             begin
               AppendInstallLogWarn('MigrateNodeStorageIfNeeded: copy failed after ' + IntToStr(CopiedCount) + ' files');
               if not TargetExistedBefore then
@@ -2881,7 +2892,7 @@ begin
   CountFilesInTree(MigrationDest, RollbackTotal);
   RollbackCount := 0;
 
-  if CopyTreeWithProgress(MigrationDest, MigrationSource, nil, RollbackCount, RollbackTotal) then
+  if CopyTreeWithProgress(MigrationDest, MigrationSource, nil, RollbackCount, RollbackTotal, '') then
   begin
     AppendInstallLog('DeinitializeSetup: rollback copy succeeded, deleting migration destination');
     DelTree(MigrationDest, True, True, True);
