@@ -1,4 +1,4 @@
-name: Update README release badges
+name: Update release docs
 
 # Release Community Build publishes with github.token, which does not emit release
 # events to other workflows. workflow_run is the primary trigger after publish.
@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: readme-release-badges
+  group: release-docs
   cancel-in-progress: true
 
 jobs:
@@ -61,6 +61,13 @@ jobs:
         run: |
           & .\build\steps\Update-ReadmeReleaseBadges.ps1
 
+      - name: Update THANKS.md contributors
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          & .\build\steps\Update-ThanksContributors.ps1
+
       - name: Commit and push
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,12 +75,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          $status = git status --porcelain README.md
+          git add README.md THANKS.md
+          $status = git status --porcelain README.md THANKS.md
           if ([string]::IsNullOrWhiteSpace($status)) {
-            Write-Host "No README changes to commit."
+            Write-Host "No README/THANKS changes to commit."
             exit 0
           }
 
-          git add README.md
-          git commit -m "chore: update README release badges"
+          git commit -m "chore: update release docs (badges + contributors)"
           git push origin HEAD
