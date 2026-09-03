@@ -55,7 +55,7 @@ Thanks to everyone who has submitted issues on and off GitHub, made suggestions,
 - [@rainabba](https://github.com/rainabba) and [@sullivanpt](https://github.com/sullivanpt) for getting Node v4 support integrated.
 - [@s-h-a-d-o-w](https://github.com/s-h-a-d-o-w) who resolved the longstanding space escaping issue in path names ([#355](https://github.com/nvm-windows/nvm/pull/355)).
 - [ajyong](https://github.com/ajyong) who sponsored the code signing certificate in late 2021.
-
+<!-- 
 <br/>
 
-![Contributors](https://contrib.rocks/image?repo=nvm-windows/nvm&max=100)
+![Contributors](https://contrib.rocks/image?repo=nvm-windows/nvm&max=100) -->
