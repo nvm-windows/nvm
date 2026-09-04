@@ -459,6 +459,9 @@ Architectures: $noteArches.
 
 Assets per arch: Inno Setup installer (``*-setup.exe``) and prebuilt ``sync.exe`` (``*-sync.exe``) for public ``-DownloadSync`` builds.
 "@
+	if ($Version -match '(?i)-hotfix\.\d+') {
+		$intro += "`n`nHotfix stamp applied at build time via the Community Release ``hotfix`` workflow input (manifest base left unchanged in git)."
+	}
 	$commits = Get-NvmReleaseCommitSummarySection -Tag $Tag -HeadRef $headRef
 	$footer = Get-NvmReleaseNotesFooter
 	return ($intro.TrimEnd() + "`n`n" + $commits.TrimEnd() + $footer)

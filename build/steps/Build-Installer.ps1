@@ -23,12 +23,15 @@ if (-not (Test-Path -LiteralPath $bat -PathType Leaf)) {
 }
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-$version = [string]$manifest.version
+# Prefer gate/hotfix stamp (NVM_CLI_VERSION / patched manifest) over raw file alone.
+$version = $ctx.CliVersion
 $aumid = [string]$manifest.appUserModelId
 $appId = [string]$manifest.appId
 if ([string]::IsNullOrWhiteSpace($version) -or [string]::IsNullOrWhiteSpace($aumid) -or [string]::IsNullOrWhiteSpace($appId)) {
 	throw "installer manifest values (version, appUserModelId, appId) are required"
 }
+
+Write-Host "Installer version -> $version"
 
 # Inno copies bin/.sync/* only when sync.exe exists; keep dir present, no DLLs.
 New-Item -ItemType Directory -Force -Path (Join-Path $ctx.BinRoot ".sync") | Out-Null

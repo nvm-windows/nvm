@@ -43,6 +43,11 @@ function Get-NvmCliManifestPath {
 }
 
 function Get-NvmCliVersion {
+	# GHA / packaging: set NVM_CLI_VERSION (e.g. prepare.outputs.version with hotfix stamp).
+	$fromEnv = [Environment]::GetEnvironmentVariable("NVM_CLI_VERSION")
+	if (-not [string]::IsNullOrWhiteSpace($fromEnv)) {
+		return $fromEnv.Trim()
+	}
 	$manifestPath = Get-NvmCliManifestPath
 	if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 		throw "CLI manifest not found: $manifestPath"
@@ -53,6 +58,67 @@ function Get-NvmCliVersion {
 		throw "CLI manifest does not define version: $manifestPath"
 	}
 	return $version
+}
+
+function Resolve-NvmHotfixVersion {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$BaseVersion,
+		[string]$Hotfix = ""
+	)
+
+	$base = $BaseVersion.Trim()
+	if ([string]::IsNullOrWhiteSpace($base)) {
+		throw "Resolve-NvmHotfixVersion: BaseVersion is empty"
+	}
+
+	$raw = if ($null -eq $Hotfix) { "" } else { $Hotfix.Trim() }
+	if ([string]::IsNullOrWhiteSpace($raw)) {
+		return $base
+	}
+
+	$suffix = $null
+	if ($raw -match '^\d+$') {
+		$suffix = "hotfix.$raw"
+	}
+	elseif ($raw -match '^(?i)hotfix\.(\d+)$') {
+		$suffix = "hotfix.$($Matches[1])"
+	}
+	else {
+		throw @"
+Resolve-NvmHotfixVersion: invalid hotfix input '$raw'.
+Use empty (no override), a digit run (e.g. 1 -> -hotfix.1), or hotfix.N (e.g. hotfix.1).
+"@
+	}
+
+	return "{0}-{1}" -f $base, $suffix
+}
+
+function Set-NvmCliManifestVersion {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$Version
+	)
+
+	$ver = $Version.Trim()
+	if ([string]::IsNullOrWhiteSpace($ver)) {
+		throw "Set-NvmCliManifestVersion: Version is empty"
+	}
+
+	$manifestPath = Get-NvmCliManifestPath
+	if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+		throw "CLI manifest not found: $manifestPath"
+	}
+
+	$manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+	$before = [string]$manifest.version
+	$manifest.version = $ver
+
+	$json = $manifest | ConvertTo-Json -Depth 30
+	$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+	[System.IO.File]::WriteAllText($manifestPath, ($json.TrimEnd() + "`n"), $utf8NoBom)
+
+	Write-Host ("CLI manifest version -> {0} (was {1}) [{2}]" -f $ver, $before, $manifestPath)
 }
 
 function Initialize-NvmBuildContext {

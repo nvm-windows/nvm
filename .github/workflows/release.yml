@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      hotfix:
+        description: Optional hotfix stamp (e.g. 1 or hotfix.1 → {manifest}-hotfix.1). Leave empty for manifest version.
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -110,12 +115,34 @@ jobs:
           PUBLISH_RELEASE: ${{ inputs.publish_release }}
           OVERRIDE_EXISTING_RELEASE: ${{ inputs.override_existing_release }}
           ARCHES: ${{ steps.matrix.outputs.arches }}
+          HOTFIX: ${{ inputs.hotfix }}
         run: |
+          . .\build\common.ps1
+          $null = Initialize-NvmBuildContext
+          # Always read base from on-disk manifest (ignore any prior NVM_CLI_VERSION).
+          $manifestPath = Get-NvmCliManifestPath
+          $baseVersion = [string](Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json).version
+          if ([string]::IsNullOrWhiteSpace($baseVersion)) {
+            throw "CLI manifest does not define version: $manifestPath"
+          }
+          $effective = Resolve-NvmHotfixVersion -BaseVersion $baseVersion -Hotfix $env:HOTFIX
+          if ($effective -ne $baseVersion) {
+            Write-Host ("Hotfix stamp -> {0} (base {1})" -f $effective, $baseVersion)
+          }
+          else {
+            Write-Host ("Release version -> {0} (no hotfix input)" -f $effective)
+          }
+          [Environment]::SetEnvironmentVariable("NVM_CLI_VERSION", $effective, "Process")
+          if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_ENV)) {
+            Add-Content -LiteralPath $env:GITHUB_ENV -Value "NVM_CLI_VERSION=$effective"
+          }
+
           $archList = @($env:ARCHES -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
           $gateArgs = @{
             Mode          = "Gate"
             Architectures = $archList
             Enabled       = ($env:PUBLISH_RELEASE -eq "true")
+            Version       = $effective
           }
           if ($env:OVERRIDE_EXISTING_RELEASE -eq "true") {
             $gateArgs["OverrideExisting"] = $true
@@ -135,6 +162,7 @@ jobs:
     env:
       GOBIN: ${{ github.workspace }}\go-bin
       ARCHITECTURE: ${{ matrix.architecture }}
+      NVM_CLI_VERSION: ${{ needs.prepare.outputs.version }}
 
     steps:
       - name: Check GitHub App secrets
@@ -208,6 +236,21 @@ jobs:
           git -c protocol.version=2 submodule update --init --force --depth=1 --recursive
           if ($LASTEXITCODE -ne 0) {
             throw "git submodule update failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Stamp CLI manifest version (hotfix / gate)
+        env:
+          EFFECTIVE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:EFFECTIVE_VERSION)) {
+            throw "prepare.outputs.version empty (cannot stamp cli/src/manifest.json)"
+          }
+          . .\build\common.ps1
+          $null = Initialize-NvmBuildContext
+          $base = (Get-Content -LiteralPath (Get-NvmCliManifestPath) -Raw -Encoding UTF8 | ConvertFrom-Json).version
+          Set-NvmCliManifestVersion -Version $env:EFFECTIVE_VERSION
+          if ($env:EFFECTIVE_VERSION -ne [string]$base) {
+            Write-Host ("Hotfix stamp -> {0} (base {1})" -f $env:EFFECTIVE_VERSION, $base)
           }
 
       - name: Set up Go

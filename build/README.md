@@ -51,13 +51,14 @@ Workflow: [Release Community Build](../.github/workflows/release.yml) (`workflow
 | `architecture` | `both` | `amd64`, `arm64`, or both |
 | `publish_release` | true | Draft → upload assets → publish |
 | `override_existing_release` | false | Replace setup.exe **and** sync.exe on existing tag |
+| `hotfix` | _(empty)_ | Optional stamp: `1` or `hotfix.1` → `{manifest}-hotfix.N` without committing `cli/src/manifest.json` |
 
 GitHub Release assets per architecture:
 
 - `nvm-<version>-<arch>-setup.exe` — Inno Setup installer
 - `nvm-<version>-<arch>-sync.exe` — prebuilt sync for `-DownloadSync`
 
-Tag = `v` + `cli/src/manifest.json` `version`.
+Tag = `v` + effective version (`cli/src/manifest.json` version, plus optional `hotfix` stamp). Runner patches manifest before CLI/Inno build so embeds and `AppVersion` match. Inno `VersionInfoVersion` already maps `-hotfix.N` → fourth numeric field (`2.0.1-hotfix.1` → `2.0.1.1`).
 
 ### WinGet
 
