@@ -2236,7 +2236,7 @@ begin
   Result := False;
   if (StoragePermissionsPage <> nil) and (PageID = StoragePermissionsPage.ID) then
   begin
-    if WizardSilent or WizardVerySilent then
+    if WizardSilent then
     begin
       Result := True;
       Exit;
@@ -2305,7 +2305,7 @@ var
   AppDataRoot: String;
 begin
   SilentForcedAppDataFrom := '';
-  if not (WizardSilent or WizardVerySilent) then
+  if not WizardSilent then
     Exit;
 
   Candidate := NormalizePath(GetInstallRoot(''));
@@ -2381,7 +2381,7 @@ begin
   else
     AppendInstallLogWarn('Current-token ACL repair failed to start');
 
-  if WizardSilent or WizardVerySilent then
+  if WizardSilent then
   begin
     if AllowDegradedAclsParam() then
     begin
@@ -2586,11 +2586,11 @@ begin
   ShimDir := ExpandConstant('{app}\.shim');
   DataShimDir := AddBackslash(GetDataRoot('')) + '.shim';
 
-  { Runtime LockShimDirectory makes .shim a protected read-only DACL.
-    When DataRoot == {app}, reinstall extracts node.exe here and Inno reports
-    "create a file in the destination directory: Access is denied."
-    User still has WRITE_DAC, so icacls /reset works without elevation.
-    When DataRoot differs, unlock both ProgramRoot and DataRoot shim dirs. }
+  // Runtime LockShimDirectory makes .shim a protected read-only DACL.
+  // When DataRoot == {app}, reinstall extracts node.exe here and Inno reports
+  // "create a file in the destination directory: Access is denied."
+  // User still has WRITE_DAC, so icacls /reset works without elevation.
+  // When DataRoot differs, unlock both ProgramRoot and DataRoot shim dirs.
   if DirExists(ShimDir) then
   begin
     if Exec(
@@ -3072,7 +3072,7 @@ begin
     'Shim finalize incomplete (locked/hung Node process). User must close Node apps and run: nvm reshim'
   );
 
-  if WizardSilent or WizardVerySilent then
+  if WizardSilent then
     Exit;
 
   MessageText :=
@@ -3306,7 +3306,7 @@ var
 begin
   Result := True;
 
-  if WizardSilent or WizardVerySilent then
+  if WizardSilent then
   begin
     if ScanBlockingInstallProcesses(ProcessList) then
     begin
