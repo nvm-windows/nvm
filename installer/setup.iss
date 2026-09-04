@@ -3149,15 +3149,25 @@ begin
     Exit;
   end;
 
-  { Timeout: hung npm/node (see #1390) must not block setup forever. }
+  { Timeout: hung npm/node (see #1390) must not block setup forever.
+    Redirect all stdio to temp files — Hidden Start-Process without redirects
+    still attaches conhost; inherited console I/O can hang forever under Inno. }
   CommandLine :=
     '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ' +
     '"$shim = ''' + EscapeSingleQuotedPowerShellString(ShimPath) + '''; ' +
-    '$p = Start-Process -FilePath $shim -ArgumentList ''--version'' -WindowStyle Hidden -PassThru; ' +
-    'if (-not $p.WaitForExit(15000)) { ' +
-    '  Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; ' +
-    '  exit 124 ' +
-    '} else { exit $p.ExitCode }"';
+    '$base = Join-Path $env:TEMP (''nvm-prewarm-'' + [guid]::NewGuid().ToString()); ' +
+    '$out = $base + ''.out''; $err = $base + ''.err''; $in = $base + ''.in''; ' +
+    'New-Item -LiteralPath $in -ItemType File -Force | Out-Null; ' +
+    'try { ' +
+    '  $p = Start-Process -FilePath $shim -ArgumentList ''--version'' -WindowStyle Hidden -PassThru ' +
+    '    -RedirectStandardInput $in -RedirectStandardOutput $out -RedirectStandardError $err; ' +
+    '  if (-not $p.WaitForExit(15000)) { ' +
+    '    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; ' +
+    '    exit 124 ' +
+    '  } else { exit $p.ExitCode } ' +
+    '} finally { ' +
+    '  Remove-Item -LiteralPath $out,$err,$in -Force -ErrorAction SilentlyContinue ' +
+    '}"';
 
   if Exec(ExpandConstant('{cmd}'), CommandLine, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
   begin
