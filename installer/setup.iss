@@ -3678,21 +3678,10 @@ begin
     '$installRoot = ''' + InstallEscaped + '''' + #13#10 +
     'if ($mode -eq ''list'' -and (Test-Path -LiteralPath $outFile)) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue }' + #13#10 +
     'if ($mode -eq ''list'') { New-Item -Path $outFile -ItemType File -Force | Out-Null }' + #13#10 +
+    // Only match image paths under NVM roots. Name-wide node/npm/yarn scans
+    // pull in unmanaged installs (system Node, Volta, fnm, IDE embeds) as noise.
     'Invoke-NvmRootProcesses $appRoot' + #13#10 +
     'if ($installRoot -and ($installRoot -ne $appRoot)) { Invoke-NvmRootProcesses $installRoot }' + #13#10 +
-    'function Invoke-NodeFamilyProcesses() {' + #13#10 +
-    '  $names = @(''node'',''nodejs'',''npm'',''npx'',''corepack'',''pnpm'',''yarn'',''yarnpkg'')' + #13#10 +
-    '  Get-Process -ErrorAction SilentlyContinue | ForEach-Object {' + #13#10 +
-    '    try {' + #13#10 +
-    '      $name = $_.ProcessName' + #13#10 +
-    '      if ($names -notcontains $name.ToLowerInvariant()) { return }' + #13#10 +
-    '      $path = $_.Path' + #13#10 +
-    '      if ($null -eq $path -or $path -eq '''') { $path = $name }' + #13#10 +
-    '      Register-NvmRootProcessMatch ([string]$_.Id) $name $path' + #13#10 +
-    '    } catch {}' + #13#10 +
-    '  }' + #13#10 +
-    '}' + #13#10 +
-    'Invoke-NodeFamilyProcesses' + #13#10 +
     'if ($mode -ne ''list'') { Start-Sleep -Seconds 2 }';
 end;
 
@@ -3894,6 +3883,7 @@ function ConfirmUninstallBlockingProcesses(): Boolean;
 var
   AppRoot: String;
   InstallRoot: String;
+  DataRoot: String;
   ProcessList: String;
   Response: Integer;
   MessageText: String;
@@ -3908,9 +3898,14 @@ begin
   if InstallRoot = '' then
     InstallRoot := RemoveBackslashUnlessRoot(GetInstallRootForUninstall(''));
 
+  // DataRoot owns .shim; InstallRoot alone misses it when storage is split.
+  DataRoot := RemoveBackslashUnlessRoot(ExtractFileDir(InstallRoot));
+  if DataRoot = '' then
+    DataRoot := InstallRoot;
+
   while True do
   begin
-    if not ScanBlockingUninstallProcesses(AppRoot, InstallRoot, ProcessList) then
+    if not ScanBlockingUninstallProcesses(AppRoot, DataRoot, ProcessList) then
       Break;
 
     MessageText :=
@@ -3941,6 +3936,7 @@ var
   ScriptFile: String;
   AppRoot: String;
   InstallRoot: String;
+  DataRoot: String;
   ResultCode: Integer;
 begin
   AppRoot := Trim(UninstallAppRoot);
@@ -3953,10 +3949,14 @@ begin
     InstallRoot := GetInstallRootForUninstall('');
   InstallRoot := RemoveBackslashUnlessRoot(InstallRoot);
 
+  DataRoot := RemoveBackslashUnlessRoot(ExtractFileDir(InstallRoot));
+  if DataRoot = '' then
+    DataRoot := InstallRoot;
+
   ScriptFile := ExpandConstant('{tmp}\nvm-uninstall-force-close.ps1');
   SaveStringToFile(
     ScriptFile,
-    BuildStopProcessesUnderRootsPowerShell(AppRoot, InstallRoot),
+    BuildStopProcessesUnderRootsPowerShell(AppRoot, DataRoot),
     False
   );
 
@@ -4103,7 +4103,19 @@ begin
     NotePathLeftoverIfExists('Node.js versions folder', InstallRoot);
 
   ScanKnownLockedShims(AppRoot);
-  AppendRunningNvmProcessesToLeftovers(AppRoot, InstallRoot);
+  // Scan DataRoot so .shim under split storage is included (not InstallRoot alone).
+  if InstallRoot <> '' then
+  begin
+    if RemoveBackslashUnlessRoot(ExtractFileDir(InstallRoot)) <> '' then
+      AppendRunningNvmProcessesToLeftovers(
+        AppRoot,
+        RemoveBackslashUnlessRoot(ExtractFileDir(InstallRoot))
+      )
+    else
+      AppendRunningNvmProcessesToLeftovers(AppRoot, InstallRoot);
+  end
+  else
+    AppendRunningNvmProcessesToLeftovers(AppRoot, InstallRoot);
 end;
 
 function InitializeUninstall(): Boolean;
@@ -4287,7 +4299,10 @@ begin
   OrgRootEscaped := EscapeSingleQuotedPowerShellString(OrgRoot);
   CleanupScriptFile := ExpandConstant('{tmp}\nvm-uninstall-app-cleanup.ps1');
   CleanupScript :=
-    BuildStopProcessesUnderRootsPowerShell(AppRoot, RemoveBackslashUnlessRoot(GetInstallRootForUninstall(''))) + #13#10 +
+    BuildStopProcessesUnderRootsPowerShell(
+      AppRoot,
+      RemoveBackslashUnlessRoot(ExtractFileDir(GetInstallRootForUninstall('')))
+    ) + #13#10 +
     '$app = ''' + AppRootEscaped + '''' + #13#10 +
     '$org = ''' + OrgRootEscaped + '''' + #13#10 +
     'Start-Sleep -Seconds 2' + #13#10 +
