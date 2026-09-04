@@ -3347,10 +3347,17 @@ end;
 
 procedure PrewarmNpmAndNpxShims();
 begin
+  { node + common package managers; missing hardlinks/skips are ignored.
+    node.exe is the program shim (not proxy) — only prewarm if reshim already created it. }
+  TryPrewarmShim('node');
   EnsureShimHardlinkForPrewarm('npm');
   EnsureShimHardlinkForPrewarm('npx');
+  EnsureShimHardlinkForPrewarm('yarn');
+  EnsureShimHardlinkForPrewarm('pnpm');
   TryPrewarmShim('npm');
   TryPrewarmShim('npx');
+  TryPrewarmShim('yarn');
+  TryPrewarmShim('pnpm');
 end;
 
 procedure UpdateFinalizingProgress(
