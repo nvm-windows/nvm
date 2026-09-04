@@ -53,10 +53,11 @@ function Invoke-GhJson {
 	return $text | ConvertFrom-Json
 }
 
-function Encode-ShieldsLabel {
-	param([string]$Label)
-	$encoded = [uri]::EscapeDataString($Label)
-	return $encoded.Replace("+", "%20")
+function Encode-ShieldsPathPart {
+	param([string]$Text)
+	# shields.io path badges: '-' separates fields, '--' is a literal hyphen.
+	$escaped = $Text.Replace('_', '__').Replace('-', '--')
+	return [uri]::EscapeDataString($escaped).Replace('+', '%20')
 }
 
 function Format-PrereleaseBadgeLabel {
@@ -90,7 +91,7 @@ function Build-PrereleaseBadgeMarkdown {
 		[string]$Tag,
 		[string]$Label
 	)
-	$shields = "https://img.shields.io/badge/-$(Encode-ShieldsLabel $Label)-%2322A6F2"
+	$shields = "https://img.shields.io/badge/-$(Encode-ShieldsPathPart $Label)-%2322A6F2"
 	$url = Get-ReleasePageUrl -Tag $Tag
 	return "[![$Label]($shields)]($url)"
 }
@@ -100,9 +101,19 @@ function Build-StableBadgeMarkdown {
 		[string]$Tag,
 		[string]$Label
 	)
-	$shields = "https://img.shields.io/badge/$(Encode-ShieldsLabel $Label)-1?style=social"
+	$version = $Tag.Trim()
+	if ($version.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {
+		$version = $version.Substring(1)
+	}
+	$shields = "https://img.shields.io/badge/$(Encode-ShieldsPathPart 'Latest Stable')-$(Encode-ShieldsPathPart "v$version")-1?style=social"
 	$url = Get-ReleasePageUrl -Tag $Tag
 	return "[![$Label]($shields)]($url)"
+}
+
+function Get-StaticSocialBadgesMarkdown {
+	$downloads = "![Downloads](https://img.shields.io/github/downloads/$Repository/total?label=Downloads&style=social)"
+	$tweet = '[![Twitter URL](https://img.shields.io/twitter/url?style=social&url=https%3A%2F%2Ftwitter.com%2Fintent%2Ftweet%3Fhashtags%3Dnodejs%26original_referer%3Dhttp%253A%252F%252F127.0.0.1%253A91%252F%26text%3DNVM%2520for%2520Windows%2520v2%2520is%2520available%21%26tw_p%3Dtweetbutton%26url%3Dhttps%253A%252F%252Fnvm-windows.com)](https://twitter.com/intent/tweet?hashtags=nodejs&original_referer=http%3A%2F%2F127.0.0.1%3A91%2F&text=NVM%20for%20Windows%20v2%20is%20available.&tw_p=tweetbutton&url=https%3A%2F%2Fnvm-windows.com)'
+	return "$downloads $tweet"
 }
 
 function Get-SemVerParts {
@@ -266,9 +277,11 @@ if ($badgeParts.Count -eq 0) {
 	exit 0
 }
 
+# Keep Downloads / tweet on the same visual row as release badges.
+$badgeParts += (Get-StaticSocialBadgesMarkdown)
+
 $newInner = ($badgeParts -join " ")
-# Newlines required: HTML comments glued to badge markdown break GitHub rendering
-# (raw link text instead of images).
+# Newlines only around HTML markers — badges stay one line so they render in a row.
 $newBlock = "$markerStart`n$newInner`n$markerEnd"
 
 $readme = [System.IO.File]::ReadAllText($ReadmePath)
