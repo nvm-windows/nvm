@@ -267,7 +267,9 @@ if ($badgeParts.Count -eq 0) {
 }
 
 $newInner = ($badgeParts -join " ")
-$newBlock = "$markerStart$newInner$markerEnd"
+# Newlines required: HTML comments glued to badge markdown break GitHub rendering
+# (raw link text instead of images).
+$newBlock = "$markerStart`n$newInner`n$markerEnd"
 
 $readme = [System.IO.File]::ReadAllText($ReadmePath)
 if ($readme -notmatch [regex]::Escape($markerStart) -or $readme -notmatch [regex]::Escape($markerEnd)) {
