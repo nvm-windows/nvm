@@ -62,23 +62,12 @@ function Encode-ShieldsPathPart {
 
 function Format-PrereleaseBadgeLabel {
 	param([string]$Tag)
-	$version = $Tag.Trim()
-	if ($version.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {
-		$version = $version.Substring(1)
-	}
-	if ($version -match '^(\d+)\.(\d+)\.(\d+)-rc\.(\d+)$') {
-		return "Try v$($matches[1]) RC $($matches[4])"
-	}
-	return "Try v$version"
+	return "Prerelease"
 }
 
 function Format-StableBadgeLabel {
 	param([string]$Tag)
-	$version = $Tag.Trim()
-	if ($version.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {
-		$version = $version.Substring(1)
-	}
-	return "Latest Stable-v$version"
+	return "Install Stable Version"
 }
 
 function Get-ReleasePageUrl {
@@ -91,7 +80,12 @@ function Build-PrereleaseBadgeMarkdown {
 		[string]$Tag,
 		[string]$Label
 	)
-	$shields = "https://img.shields.io/badge/-$(Encode-ShieldsPathPart $Label)-%2322A6F2"
+	# Social-style "Latest Release" replacement; version in message for clarity.
+	$version = $Tag.Trim()
+	if ($version.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {
+		$version = $version.Substring(1)
+	}
+	$shields = "https://img.shields.io/badge/$(Encode-ShieldsPathPart $Label)-$(Encode-ShieldsPathPart "v$version")-1?style=social"
 	$url = Get-ReleasePageUrl -Tag $Tag
 	return "[![$Label]($shields)]($url)"
 }
@@ -101,11 +95,8 @@ function Build-StableBadgeMarkdown {
 		[string]$Tag,
 		[string]$Label
 	)
-	$version = $Tag.Trim()
-	if ($version.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {
-		$version = $version.Substring(1)
-	}
-	$shields = "https://img.shields.io/badge/$(Encode-ShieldsPathPart 'Latest Stable')-$(Encode-ShieldsPathPart "v$version")-1?style=social"
+	# Blue CTA (was "Install Now").
+	$shields = "https://img.shields.io/badge/-$(Encode-ShieldsPathPart $Label)-%2322A6F2"
 	$url = Get-ReleasePageUrl -Tag $Tag
 	return "[![$Label]($shields)]($url)"
 }
@@ -240,28 +231,8 @@ if ($null -eq $prerelease -and $null -eq $stable) {
 }
 
 $badgeParts = @()
-if ($null -ne $prerelease) {
-	$preTag = [string]$prerelease.tagName
-	$preLabel = Format-PrereleaseBadgeLabel -Tag $preTag
-	$tryBadge = Build-PrereleaseBadgeMarkdown -Tag $preTag -Label $preLabel
-	$showTry = $true
-	if ($null -ne $stable) {
-		$stableTag = [string]$stable.tagName
-		$showTry = Test-PrereleaseIsNewerThanStable -PrereleaseTag $preTag -StableTag $stableTag
-	}
-	if ($showTry) {
-		$badgeParts += $tryBadge
-		Write-Host "Prerelease badge -> $preLabel ($preTag) [visible]"
-	}
-	else {
-		$badgeParts += "<!-- $tryBadge -->"
-		Write-Host "Prerelease badge -> $preLabel ($preTag) [commented: not newer than stable]"
-	}
-}
-else {
-	Write-Warning "No published prerelease found; prerelease badge will be omitted."
-}
 
+# Order matches classic README: Install CTA first, then prerelease indicator.
 if ($null -ne $stable) {
 	$stableTag = [string]$stable.tagName
 	$stableLabel = Format-StableBadgeLabel -Tag $stableTag
@@ -270,6 +241,28 @@ if ($null -ne $stable) {
 }
 else {
 	Write-Warning "No published stable release found; stable badge will be omitted."
+}
+
+if ($null -ne $prerelease) {
+	$preTag = [string]$prerelease.tagName
+	$preLabel = Format-PrereleaseBadgeLabel -Tag $preTag
+	$preBadge = Build-PrereleaseBadgeMarkdown -Tag $preTag -Label $preLabel
+	$showPre = $true
+	if ($null -ne $stable) {
+		$stableTag = [string]$stable.tagName
+		$showPre = Test-PrereleaseIsNewerThanStable -PrereleaseTag $preTag -StableTag $stableTag
+	}
+	if ($showPre) {
+		$badgeParts += $preBadge
+		Write-Host "Prerelease badge -> $preLabel ($preTag) [visible]"
+	}
+	else {
+		$badgeParts += "<!-- $preBadge -->"
+		Write-Host "Prerelease badge -> $preLabel ($preTag) [commented: not newer than stable]"
+	}
+}
+else {
+	Write-Warning "No published prerelease found; prerelease badge will be omitted."
 }
 
 if ($badgeParts.Count -eq 0) {
