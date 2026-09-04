@@ -543,8 +543,8 @@ begin
     Result := Trim(NodeStoragePage.Values[0]);
 end;
 
-{ DataRoot is the parent of InstallRoot (.shim / .nodejs / .cache live here). }
-{ Default InstallRoot={app}\installs keeps DataRoot={app}. Custom storage splits them. }
+// DataRoot is the parent of InstallRoot (.shim / .nodejs / .cache live here).
+// Default InstallRoot={app}\installs keeps DataRoot={app}. Custom storage splits them.
 function GetDataRoot(Param: String): String;
 var
   InstallRoot: String;
@@ -1081,7 +1081,7 @@ begin
   NormalizedLegacyHome := NormalizePath(Trim(LegacyInstallDir));
   NormalizedLegacyNodePath := NormalizePath(Trim(LegacySettingsPath));
   NormalizedCurrentHome := NormalizePath(ExpandConstant('{app}'));
-  { PATH node entry must track DataRoot (.shim lives there), not always {app}. }
+  // PATH node entry must track DataRoot (.shim lives there), not always {app}.
   NormalizedCurrentNodePath := NormalizePath(AddBackslash(GetDataRoot('')) + '.nodejs');
   NormalizedProgramNodePath := NormalizePath(ExpandConstant('{app}\\.nodejs'));
 
@@ -2885,8 +2885,8 @@ begin
   BroadcastEnvironmentChange();
 end;
 
-{ When InstallRoot is customized, DataRoot leaves {app}. Seed runtime .shim + proxy }
-{ so PATH/.nodejs match where nvm use / reshim write shims (closes #1388). }
+// When InstallRoot is customized, DataRoot leaves {app}. Seed runtime .shim + proxy
+// so PATH/.nodejs match where nvm use / reshim write shims (closes #1388).
 procedure EnsureDataRootRuntimeLayout();
 var
   DataRoot: String;
