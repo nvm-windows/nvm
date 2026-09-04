@@ -186,26 +186,10 @@ for ($i = 0; $i -lt $cells.Count; $i += $Columns) {
 }
 $rowHtml.Add("</table>")
 
-$listLines = New-Object System.Collections.Generic.List[string]
-$rank = 1
-foreach ($login in $ranked) {
-	$url = if ($htmlUrls.ContainsKey($login)) { $htmlUrls[$login] } else { "https://github.com/$login" }
-	$count = [int]$counts[$login]
-	$listLines.Add("$rank. [@$login]($url) — $count")
-	$rank += 1
-}
-
 $generated = @(
 	"_Commit authors on ``master`` (v1) and ``main`` (v2), sorted by commit count. Bots omitted. Updated on each community release._"
 	""
 	($rowHtml -join "`n")
-	""
-	"<details>"
-	"<summary>Ranked list</summary>"
-	""
-	($listLines -join "`n")
-	""
-	"</details>"
 ) -join "`n"
 
 $newBlock = "$markerStart`n$generated`n$markerEnd"

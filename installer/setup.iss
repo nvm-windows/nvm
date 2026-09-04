@@ -162,6 +162,8 @@ Name: "{userprograms}\{#Name}\Sync"; Filename: "{app}\utils\sync.exe"; IconFilen
 [Code]
 var
   NodeStoragePage: TInputDirWizardPage;
+  StoragePermissionsPage: TInputOptionWizardPage;
+  StoragePermissionsPathLabel: TNewStaticText;
   OperatingModePage: TInputOptionWizardPage;
   PreferencesPage: TInputOptionWizardPage;
   EmailPage: TWizardPage;
@@ -205,6 +207,11 @@ var
   UninstallLeftovers: String;
   UninstallDelayedCleanupScheduled: Boolean;
   UninstallSelfExe: String;
+  { 0=Harden, 1=AppData, 2=Keep/degraded }
+  AclStorageChoice: Integer;
+  SilentForcedAppDataFrom: String;
+  RuntimeACLDegraded: Boolean;
+  ShimFinalizeIncomplete: Boolean;
 
 const
   WM_SETTINGCHANGE = $001A;
@@ -221,6 +228,10 @@ procedure SplitPathString(const PathStr: String; var Segments: TArrayOfString); 
 function ExpandPathSegment(const Segment: String): String; forward;
 function GetInstallRootForUninstall(Param: String): String; forward;
 procedure ForceCloseNvmProcessesOnUninstall(); forward;
+function BuildNvmProcessManagementScript(
+  const AppRoot, InstallRoot, OutputFile, Mode, ExcludeProcessPath: String
+): String; forward;
+function FormatBlockingProcessLine(const Line: String): String; forward;
 
 procedure BroadcastEnvironmentChange();
 var
@@ -2173,6 +2184,286 @@ procedure CurPageChanged(CurPageID: Integer);
 begin
   if (EmailPage <> nil) and (CurPageID = EmailPage.ID) then
     EmailFirstFocus := True;
+
+  if (StoragePermissionsPage <> nil) and (CurPageID = StoragePermissionsPage.ID) and
+     (StoragePermissionsPathLabel <> nil) then
+    StoragePermissionsPathLabel.Caption := 'Selected path:' + #13#10 + GetInstallRoot('');
+end;
+
+function DefaultAppDataInstallRoot(): String;
+begin
+  Result := ExpandConstant('{localappdata}\{#OrgLabel}\{#Alias}\installs');
+end;
+
+function IsPathUnderSafeManagedRoot(const PathValue: String): Boolean;
+var
+  PathNorm: String;
+  Candidate: String;
+begin
+  Result := False;
+  PathNorm := LowerCase(NormalizePath(PathValue));
+  if PathNorm = '' then
+    Exit;
+
+  Candidate := LowerCase(NormalizePath(ExpandConstant('{localappdata}')));
+  if (Candidate <> '') and ((PathNorm = Candidate) or (Pos(Candidate + '\', PathNorm) = 1)) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  Candidate := LowerCase(NormalizePath(GetEnv('USERPROFILE')));
+  if (Candidate <> '') and ((PathNorm = Candidate) or (Pos(Candidate + '\', PathNorm) = 1)) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  Candidate := LowerCase(NormalizePath(ExpandConstant('{pf}')));
+  if (Candidate <> '') and ((PathNorm = Candidate) or (Pos(Candidate + '\', PathNorm) = 1)) then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  Candidate := LowerCase(NormalizePath(ExpandConstant('{pf32}')));
+  if (Candidate <> '') and ((PathNorm = Candidate) or (Pos(Candidate + '\', PathNorm) = 1)) then
+    Result := True;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if (StoragePermissionsPage <> nil) and (PageID = StoragePermissionsPage.ID) then
+  begin
+    if WizardSilent or WizardVerySilent then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Result := IsPathUnderSafeManagedRoot(GetInstallRoot(''));
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  AppDataRoot: String;
+begin
+  Result := True;
+  if (StoragePermissionsPage = nil) or (CurPageID <> StoragePermissionsPage.ID) then
+    Exit;
+
+  if StoragePermissionsPage.Values[0] then
+    AclStorageChoice := 0
+  else if StoragePermissionsPage.Values[1] then
+  begin
+    AclStorageChoice := 1;
+    AppDataRoot := DefaultAppDataInstallRoot();
+    NodeStoragePage.Values[0] := AppDataRoot;
+    AppendInstallLog('StoragePermissionsPage: user chose AppData root ' + AppDataRoot);
+  end
+  else
+    AclStorageChoice := 2;
+end;
+
+function CheckRuntimeAclsOk(const InstallRoot: String): Boolean;
+var
+  ResultCode: Integer;
+  Args: String;
+begin
+  Result := False;
+  if Trim(InstallRoot) = '' then
+    Exit;
+  if not FileExists(ExpandConstant('{app}\{#Alias}.exe')) then
+    Exit;
+
+  Args := '--check-runtime-acls "' + InstallRoot + '"';
+  if Exec(
+    ExpandConstant('{app}\{#Alias}.exe'),
+    Args,
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+    Result := (ResultCode = 0)
+  else
+    AppendInstallLogWarn('CheckRuntimeAclsOk: failed to start nvm --check-runtime-acls');
+end;
+
+function AllowDegradedAclsParam(): Boolean;
+var
+  Raw: String;
+begin
+  Raw := Trim(ExpandConstant('{param:ALLOWDEGRADEDACLS}'));
+  Result := (Raw = '1') or (CompareText(Raw, 'true') = 0) or (CompareText(Raw, 'yes') = 0);
+end;
+
+procedure ApplySilentInstallRootPolicy();
+var
+  Candidate: String;
+  AppDataRoot: String;
+begin
+  SilentForcedAppDataFrom := '';
+  if not (WizardSilent or WizardVerySilent) then
+    Exit;
+
+  Candidate := NormalizePath(GetInstallRoot(''));
+  AppDataRoot := NormalizePath(DefaultAppDataInstallRoot());
+  if Candidate = '' then
+  begin
+    NodeStoragePage.Values[0] := DefaultAppDataInstallRoot();
+    Exit;
+  end;
+
+  if CompareText(Candidate, AppDataRoot) = 0 then
+    Exit;
+
+  if IsPathUnderSafeManagedRoot(Candidate) then
+  begin
+    AppendInstallLog('Silent ACL policy: keeping safe InstallRoot ' + Candidate);
+    Exit;
+  end;
+
+  { nvm.exe is on disk in ssPostInstall; probe + optional current-token harden. }
+  if CheckRuntimeAclsOk(Candidate) then
+  begin
+    AppendInstallLog('Silent ACL policy: keeping InstallRoot after successful check/repair: ' + Candidate);
+    Exit;
+  end;
+
+  AppendInstallLogWarn('Silent ACL policy: InstallRoot unsafe, forcing AppData: ' + Candidate + ' -> ' + AppDataRoot);
+  SilentForcedAppDataFrom := Candidate;
+  if Trim(PreviousInstallRoot) = '' then
+    PreviousInstallRoot := Candidate
+  else if CompareText(NormalizePath(PreviousInstallRoot), Candidate) <> 0 then
+  begin
+    { Prefer migrating the unsafe custom root the user had configured. }
+    PreviousInstallRoot := Candidate;
+  end;
+  NodeStoragePage.Values[0] := DefaultAppDataInstallRoot();
+  RegWriteStringValue(HKCU, '{#RegistryKey}', 'InstallRoot', DefaultAppDataInstallRoot());
+end;
+
+procedure SetRuntimeACLDegradedFlag(const Degraded: Boolean);
+begin
+  RuntimeACLDegraded := Degraded;
+  if Degraded then
+    RegWriteDWordValue(HKCU, '{#RegistryKey}', 'RuntimeACLDegraded', 1)
+  else
+    RegWriteDWordValue(HKCU, '{#RegistryKey}', 'RuntimeACLDegraded', 0);
+end;
+
+procedure RepairRuntimeAclsPostInstall();
+var
+  ResultCode: Integer;
+  ElevatedExecOk: Boolean;
+  NvmExe: String;
+begin
+  NvmExe := ExpandConstant('{app}\{#Alias}.exe');
+  if not FileExists(NvmExe) then
+  begin
+    AppendInstallLogWarn('RepairRuntimeAclsPostInstall: nvm.exe missing');
+    Exit;
+  end;
+
+  { Current-token repair first (owner WRITE_DAC / already elevated). }
+  if Exec(NvmExe, '--repair-runtime-acls', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if ResultCode = 0 then
+    begin
+      AppendInstallLog('Runtime ACLs repaired with current token');
+      SetRuntimeACLDegradedFlag(False);
+      Exit;
+    end;
+    AppendInstallLogWarn('Current-token ACL repair exit=' + IntToStr(ResultCode));
+  end
+  else
+    AppendInstallLogWarn('Current-token ACL repair failed to start');
+
+  if WizardSilent or WizardVerySilent then
+  begin
+    if AllowDegradedAclsParam() then
+    begin
+      AppendInstallLogWarn('Silent ACL repair incomplete; /ALLOWDEGRADEDACLS set — continuing degraded');
+      SetRuntimeACLDegradedFlag(True);
+      Exit;
+    end;
+    RaiseException(
+      'Node.js storage ACL harden failed during silent install. ' +
+      'Re-run the interactive installer, choose AppData storage, or pass /ALLOWDEGRADEDACLS=1. ' +
+      'After install you can also run: nvm doctor --autofix'
+    );
+  end;
+
+  { Interactive: elevate only when user chose Harden (default). }
+  if AclStorageChoice = 2 then
+  begin
+    AppendInstallLogWarn('User chose keep-path; leaving ACLs degraded');
+    SetRuntimeACLDegradedFlag(True);
+    Exit;
+  end;
+
+  ElevatedExecOk := ShellExec(
+    'runas',
+    NvmExe,
+    '--repair-runtime-acls',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+
+  if not ElevatedExecOk then
+  begin
+    if ResultCode = 1223 then
+      AppendInstallLogWarn('Runtime ACL repair skipped: UAC prompt canceled')
+    else
+      AppendInstallLogWarn(
+        'Runtime ACL repair skipped: elevation failed (system error ' + IntToStr(ResultCode) + ')'
+      );
+    SetRuntimeACLDegradedFlag(True);
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    AppendInstallLogWarn(
+      'Runtime ACL repair returned exit code ' + IntToStr(ResultCode) +
+      ' — run `nvm doctor --autofix` after install if npm reports NVM4305'
+    );
+    SetRuntimeACLDegradedFlag(True);
+  end
+  else
+  begin
+    AppendInstallLog('Runtime ACLs repaired successfully (elevated)');
+    SetRuntimeACLDegradedFlag(False);
+  end;
+end;
+
+procedure NotifySilentStorageMigration();
+var
+  ResultCode: Integer;
+  Args: String;
+begin
+  if Trim(SilentForcedAppDataFrom) = '' then
+    Exit;
+  Args :=
+    '--notify-storage-migrated "' + SilentForcedAppDataFrom + '" "' +
+    DefaultAppDataInstallRoot() + '"';
+  if not Exec(
+    ExpandConstant('{app}\{#Alias}.exe'),
+    Args,
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+    AppendInstallLogWarn('Silent storage migration toast failed to start')
+  else if ResultCode <> 0 then
+    AppendInstallLogWarn('Silent storage migration toast exit=' + IntToStr(ResultCode))
+  else
+    AppendInstallLog('Silent storage migration toast sent');
 end;
 
 procedure UpdateAutoInstallPromptState();
@@ -2355,6 +2646,11 @@ end;
 
 procedure InitializeWizard;
 begin
+  AclStorageChoice := 0;
+  SilentForcedAppDataFrom := '';
+  RuntimeACLDegraded := False;
+  ShimFinalizeIncomplete := False;
+
   NodeStoragePage := CreateInputDirPage(
     wpLicense,
     'Node.js Storage Location',
@@ -2367,8 +2663,31 @@ begin
   NodeStoragePage.Add('Node.js storage path:');
   NodeStoragePage.Values[0] := WizardDefaultInstallRoot;
 
-  OperatingModePage := CreateInputOptionPage(
+  StoragePermissionsPage := CreateInputOptionPage(
     NodeStoragePage.ID,
+    'Node.js storage permissions',
+    'This location can be written by other Windows users.',
+    'NVM blocks npm in that case (NVM4305) unless you harden permissions or use a private path.',
+    True,
+    False
+  );
+  StoragePermissionsPage.Add('Harden permissions for this path (recommended; Windows may ask for approval)');
+  StoragePermissionsPage.Add('Use the default AppData storage path instead');
+  StoragePermissionsPage.Add('Keep this path and continue (may need nvm doctor --autofix later)');
+  StoragePermissionsPage.Values[0] := True;
+
+  StoragePermissionsPathLabel := TNewStaticText.Create(StoragePermissionsPage);
+  StoragePermissionsPathLabel.Parent := StoragePermissionsPage.Surface;
+  StoragePermissionsPathLabel.Left := ScaleX(0);
+  StoragePermissionsPathLabel.Top := ScaleY(130);
+  StoragePermissionsPathLabel.Width := StoragePermissionsPage.SurfaceWidth;
+  StoragePermissionsPathLabel.Height := ScaleY(40);
+  StoragePermissionsPathLabel.AutoSize := False;
+  StoragePermissionsPathLabel.WordWrap := True;
+  StoragePermissionsPathLabel.Caption := 'Selected path:' + #13#10 + WizardDefaultInstallRoot;
+
+  OperatingModePage := CreateInputOptionPage(
+    StoragePermissionsPage.ID,
     'Operating Mode',
     'Select how Node.js should be made available on your system.',
     'Shim mode offers an enhanced modern workflow. Link mode offers guaranteed minimum latency with no extra features. This can be changed at any time by running "nvm use <mode>".',
@@ -2730,12 +3049,41 @@ begin
     ResultCode
   ) then
   begin
+    ShimFinalizeIncomplete := True;
     AppendInstallLogWarn('RunForceReshimAtEnd: unable to start reshim.exe --force');
     Exit;
   end;
 
   if ResultCode <> 0 then
+  begin
+    ShimFinalizeIncomplete := True;
     AppendInstallLogWarn('RunForceReshimAtEnd: reshim.exe --force returned exit code ' + IntToStr(ResultCode));
+  end;
+end;
+
+procedure WarnIfShimFinalizeIncomplete();
+var
+  MessageText: String;
+begin
+  if not ShimFinalizeIncomplete then
+    Exit;
+
+  AppendInstallLogWarn(
+    'Shim finalize incomplete (locked/hung Node process). User must close Node apps and run: nvm reshim'
+  );
+
+  if WizardSilent or WizardVerySilent then
+    Exit;
+
+  MessageText :=
+    'NVM could not finish rebuilding shims because a Node.js process was locked or hung.' + #13#10 + #13#10 +
+    'After this installer closes:' + #13#10 +
+    '1. Close all terminals and apps using Node.js / npm / npx' + #13#10 +
+    '2. Open a new terminal' + #13#10 +
+    '3. Run:  nvm reshim' + #13#10 + #13#10 +
+    'Until you run that command, npm/node may fail or use stale shims.';
+
+  MsgBox(MessageText, mbInformation, MB_OK);
 end;
 
 procedure EnsureShimHardlinkForPrewarm(const ShimBaseName: String);
@@ -2791,20 +3139,210 @@ procedure TryPrewarmShim(const ShimBaseName: String);
 var
   ResultCode: Integer;
   ShimPath: String;
+  CommandLine: String;
 begin
   ResultCode := -1;
   ShimPath := AddBackslash(GetDataRoot('')) + '.shim\' + ShimBaseName + '.exe';
+  if not FileExists(ShimPath) then
+  begin
+    AppendInstallLogWarn('TryPrewarmShim: missing ' + ShimPath);
+    Exit;
+  end;
+
+  { Timeout: hung npm/node (see #1390) must not block setup forever. }
+  CommandLine :=
+    '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ' +
+    '"$shim = ''' + EscapeSingleQuotedPowerShellString(ShimPath) + '''; ' +
+    '$p = Start-Process -FilePath $shim -ArgumentList ''--version'' -WindowStyle Hidden -PassThru; ' +
+    'if (-not $p.WaitForExit(15000)) { ' +
+    '  Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; ' +
+    '  exit 124 ' +
+    '} else { exit $p.ExitCode }"';
+
+  if Exec(ExpandConstant('{cmd}'), CommandLine, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if ResultCode = 124 then
+    begin
+      ShimFinalizeIncomplete := True;
+      AppendInstallLogWarn(
+        'TryPrewarmShim: ' + ShimBaseName +
+        '.exe timed out after 15s (process locked/hung) — user must run nvm reshim after install'
+      );
+    end
+    else
+      AppendInstallLog('TryPrewarmShim: ' + ShimBaseName + '.exe exit code ' + IntToStr(ResultCode));
+  end
+  else
+    AppendInstallLog('TryPrewarmShim: unable to start ' + ShimBaseName + '.exe (ignored)');
+end;
+
+procedure ForceCloseNvmProcessesForInstall();
+var
+  ScriptFile: String;
+  AppRoot: String;
+  DataRoot: String;
+  ResultCode: Integer;
+begin
+  AppRoot := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));
+  DataRoot := RemoveBackslashUnlessRoot(GetDataRoot(''));
+
+  ScriptFile := ExpandConstant('{tmp}\nvm-install-force-close.ps1');
+  SaveStringToFile(
+    ScriptFile,
+    BuildNvmProcessManagementScript(
+      AppRoot,
+      DataRoot,
+      '',
+      'stop',
+      ExpandConstant('{srcexe}')
+    ),
+    False
+  );
+
   if Exec(
-    ShimPath,
-    '--version',
+    ExpandConstant('{cmd}'),
+    '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"',
     '',
     SW_HIDE,
     ewWaitUntilTerminated,
     ResultCode
   ) then
-    AppendInstallLog('TryPrewarmShim: ' + ShimBaseName + '.exe exit code ' + IntToStr(ResultCode))
+    AppendInstallLog('ForceCloseNvmProcessesForInstall: exit=' + IntToStr(ResultCode))
   else
-    AppendInstallLog('TryPrewarmShim: unable to start ' + ShimBaseName + '.exe (ignored)');
+    AppendInstallLogWarn('ForceCloseNvmProcessesForInstall: failed to start');
+
+  DeleteFile(ScriptFile);
+end;
+
+function ScanBlockingInstallProcesses(var ProcessList: String): Boolean;
+var
+  ScriptFile: String;
+  OutputFile: String;
+  RawOutput: AnsiString;
+  RawText: String;
+  ResultCode: Integer;
+  LineStart, LineEnd, LineLength: Integer;
+  Line: String;
+  FormattedLine: String;
+  AppRoot: String;
+  DataRoot: String;
+begin
+  Result := False;
+  ProcessList := '';
+
+  AppRoot := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));
+  DataRoot := RemoveBackslashUnlessRoot(GetDataRoot(''));
+
+  OutputFile := ExpandConstant('{tmp}\nvm-install-blockers.txt');
+  DeleteFile(OutputFile);
+
+  ScriptFile := ExpandConstant('{tmp}\nvm-install-list-processes.ps1');
+  SaveStringToFile(
+    ScriptFile,
+    BuildNvmProcessManagementScript(
+      AppRoot,
+      DataRoot,
+      OutputFile,
+      'list',
+      ExpandConstant('{srcexe}')
+    ),
+    False
+  );
+
+  if Exec(
+    ExpandConstant('{cmd}'),
+    '/C powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + ScriptFile + '"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+  begin
+    if LoadStringFromFile(OutputFile, RawOutput) then
+    begin
+      RawText := String(RawOutput);
+      LineStart := 1;
+      while LineStart <= Length(RawText) do
+      begin
+        LineEnd := LineStart;
+        while (LineEnd <= Length(RawText)) and (RawText[LineEnd] <> #10) and (RawText[LineEnd] <> #13) do
+          LineEnd := LineEnd + 1;
+
+        LineLength := LineEnd - LineStart;
+        if LineLength > 0 then
+        begin
+          Line := Trim(Copy(RawText, LineStart, LineLength));
+          FormattedLine := FormatBlockingProcessLine(Line);
+          if FormattedLine <> '' then
+          begin
+            if ProcessList <> '' then
+              ProcessList := ProcessList + #13#10;
+            ProcessList := ProcessList + FormattedLine;
+          end;
+        end;
+
+        LineStart := LineEnd + 1;
+        if (LineStart <= Length(RawText)) and (RawText[LineStart] = #10) then
+          LineStart := LineStart + 1;
+      end;
+    end;
+  end
+  else
+    AppendInstallLogWarn('ScanBlockingInstallProcesses: scan script failed to start');
+
+  DeleteFile(ScriptFile);
+  DeleteFile(OutputFile);
+
+  ProcessList := Trim(ProcessList);
+  Result := ProcessList <> '';
+end;
+
+{ Returns True when install should continue (possibly after closing blockers). }
+function ConfirmAndCloseBlockingInstallProcesses(): Boolean;
+var
+  ProcessList: String;
+  Response: Integer;
+  MessageText: String;
+begin
+  Result := True;
+
+  if WizardSilent or WizardVerySilent then
+  begin
+    if ScanBlockingInstallProcesses(ProcessList) then
+    begin
+      AppendInstallLogWarn('Silent install: closing NVM/Node processes under install roots:' + #13#10 + ProcessList);
+      ForceCloseNvmProcessesForInstall();
+    end;
+    Exit;
+  end;
+
+  while True do
+  begin
+    if not ScanBlockingInstallProcesses(ProcessList) then
+      Break;
+
+    MessageText :=
+      'These Node.js processes are still running and can block shim updates:' + #13#10 + #13#10 +
+      ProcessList + #13#10 + #13#10 +
+      '(Includes any node/npm/npx/corepack/pnpm/yarn process on this PC, plus NVM install folders.)' + #13#10 + #13#10 +
+      'Yes = close them and continue' + #13#10 +
+      'No = continue without closing (shim rebuild may time out; you will need nvm reshim)' + #13#10 +
+      'Cancel = check again';
+
+    Response := MsgBox(MessageText, mbConfirmation, MB_YESNOCANCEL);
+
+    if Response = IDYES then
+    begin
+      ForceCloseNvmProcessesForInstall();
+      Continue;
+    end;
+
+    if Response = IDNO then
+    begin
+      AppendInstallLogWarn('User declined to close blocking processes; continuing');
+      Break;
+    end;
+  end;
 end;
 
 procedure PrewarmNpmAndNpxShims();
@@ -2866,8 +3404,11 @@ begin
   FinalizingTotal := 7;
   if RemoveLegacyTasks then
     FinalizingTotal := FinalizingTotal + 1;
+  FinalizingTotal := FinalizingTotal + 1;  { silent/ACL storage policy check }
   FinalizingTotal := FinalizingTotal + 1;  { for AUMID configuration }
+  FinalizingTotal := FinalizingTotal + 1;  { close blocking Node/NVM processes }
   FinalizingTotal := FinalizingTotal + 1;  { for forced reshim at final step }
+  FinalizingTotal := FinalizingTotal + 1;  { for runtime ACL repair }
 
   FinalizingStep := 0;
   FinalizingPage := CreateOutputProgressPage(
@@ -2896,6 +3437,11 @@ begin
       UpdateFinalizingProgress(FinalizingPage, 'Removing legacy scheduled tasks...', FinalizingStep, FinalizingTotal);
       RemoveLegacyScheduledTasks();
     end;
+
+    FinalizingStep := FinalizingStep + 1;
+    UpdateFinalizingProgress(FinalizingPage, 'Checking Node.js storage permissions...', FinalizingStep, FinalizingTotal);
+    ApplySilentInstallRootPolicy();
+    AppendInstallLog('CurStepChanged: install root after ACL policy=' + GetInstallRoot(''));
 
     FinalizingStep := FinalizingStep + 1;
     UpdateFinalizingProgress(FinalizingPage, 'Migrating installed Node.js versions...', FinalizingStep, FinalizingTotal);
@@ -2979,14 +3525,29 @@ begin
     end;
 
     FinalizingStep := FinalizingStep + 1;
+    UpdateFinalizingProgress(FinalizingPage, 'Hardening install and Node.js version ACLs...', FinalizingStep, FinalizingTotal);
+    RepairRuntimeAclsPostInstall();
+
+    FinalizingStep := FinalizingStep + 1;
     UpdateFinalizingProgress(FinalizingPage, 'Configuring notification center integration...', FinalizingStep, FinalizingTotal);
     ConfigureAUMIDForNotifications();
     ConfigureUninstallDisplayIcon();
+    NotifySilentStorageMigration();
+
+    if RuntimeACLDegraded then
+      AppendInstallLogWarn(
+        'Runtime ACL state is degraded. Run `nvm doctor --autofix` (elevation may be prompted) before using npm.'
+      );
+
+    FinalizingStep := FinalizingStep + 1;
+    UpdateFinalizingProgress(FinalizingPage, 'Closing Node.js processes that lock shims...', FinalizingStep, FinalizingTotal);
+    ConfirmAndCloseBlockingInstallProcesses();
 
     FinalizingStep := FinalizingStep + 1;
     UpdateFinalizingProgress(FinalizingPage, 'Rebuilding and prewarming module shims...', FinalizingStep, FinalizingTotal);
     RunForceReshimAtEnd();
     PrewarmNpmAndNpxShims();
+    WarnIfShimFinalizeIncomplete();
 
     if ShouldRunSubscriptionCommand() then
     begin
@@ -3112,6 +3673,19 @@ begin
     'if ($mode -eq ''list'') { New-Item -Path $outFile -ItemType File -Force | Out-Null }' + #13#10 +
     'Invoke-NvmRootProcesses $appRoot' + #13#10 +
     'if ($installRoot -and ($installRoot -ne $appRoot)) { Invoke-NvmRootProcesses $installRoot }' + #13#10 +
+    'function Invoke-NodeFamilyProcesses() {' + #13#10 +
+    '  $names = @(''node'',''nodejs'',''npm'',''npx'',''corepack'',''pnpm'',''yarn'',''yarnpkg'')' + #13#10 +
+    '  Get-Process -ErrorAction SilentlyContinue | ForEach-Object {' + #13#10 +
+    '    try {' + #13#10 +
+    '      $name = $_.ProcessName' + #13#10 +
+    '      if ($names -notcontains $name.ToLowerInvariant()) { return }' + #13#10 +
+    '      $path = $_.Path' + #13#10 +
+    '      if ($null -eq $path -or $path -eq '''') { $path = $name }' + #13#10 +
+    '      Register-NvmRootProcessMatch ([string]$_.Id) $name $path' + #13#10 +
+    '    } catch {}' + #13#10 +
+    '  }' + #13#10 +
+    '}' + #13#10 +
+    'Invoke-NodeFamilyProcesses' + #13#10 +
     'if ($mode -ne ''list'') { Start-Sleep -Seconds 2 }';
 end;
 
