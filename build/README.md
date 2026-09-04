@@ -58,7 +58,7 @@ GitHub Release assets per architecture:
 - `nvm-<version>-<arch>-setup.exe` — Inno Setup installer
 - `nvm-<version>-<arch>-sync.exe` — prebuilt sync for `-DownloadSync`
 
-Tag = `v` + effective version (`cli/src/manifest.json` version, plus optional `hotfix` stamp). Runner patches manifest before CLI/Inno build so embeds and `AppVersion` match. Inno `VersionInfoVersion` already maps `-hotfix.N` → fourth numeric field (`2.0.1-hotfix.1` → `2.0.1.1`).
+Tag = `v` + effective version (`cli/src/manifest.json` version, plus optional `hotfix` stamp). Runner patches manifest before CLI/Inno build so embeds and `AppVersion` match. Inno `VersionInfoVersion` already maps `-hotfix.N` → fourth numeric field (`2.0.1-hotfix.1` → `2.0.1.1`). Hotfix stamps mark the GitHub Release as **`--prerelease`**.
 
 ### WinGet
 

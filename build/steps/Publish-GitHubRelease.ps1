@@ -504,7 +504,8 @@ function New-NvmDraftRelease {
 			"--title", $Tag,
 			"--notes-file", $notesFile
 		)
-		if ($Version -match '(?i)(alpha|beta|rc|preview|pre)') {
+		# hotfix stamps are intentional GitHub prereleases (validation drops, not "latest").
+		if ($Version -match '(?i)(alpha|beta|rc|preview|pre|hotfix)') {
 			$createArgs += "--prerelease"
 		}
 
