@@ -3409,12 +3409,118 @@ begin
   Result := ProcessList <> '';
 end;
 
+{ Scrollable process prompt. Buttons stay on-screen even with long lists.
+  Returns IDYES / IDNO / IDCANCEL (Cancel = "check again").
+  Form X / Escape returns IDNO so the user is never trapped in a re-prompt loop. }
+function PromptBlockingProcessList(
+  const DialogTitle, IntroText, ProcessList, Footnote: String;
+  const YesCaption, NoCaption, CheckAgainCaption: String
+): Integer;
+var
+  Form: TSetupForm;
+  IntroLabel: TNewStaticText;
+  ListMemo: TNewMemo;
+  FootLabel: TNewStaticText;
+  YesButton: TNewButton;
+  NoButton: TNewButton;
+  CheckAgainButton: TNewButton;
+  ButtonTop: Integer;
+  ButtonWidth: Integer;
+  Gap: Integer;
+  ContentWidth: Integer;
+  ModalResult: Integer;
+begin
+  Form := CreateCustomForm(ScaleX(520), ScaleY(420), False, False);
+  try
+    Form.Caption := DialogTitle;
+
+    ContentWidth := Form.ClientWidth - ScaleX(24);
+
+    IntroLabel := TNewStaticText.Create(Form);
+    IntroLabel.Parent := Form;
+    IntroLabel.Left := ScaleX(12);
+    IntroLabel.Top := ScaleY(12);
+    IntroLabel.Width := ContentWidth;
+    IntroLabel.AutoSize := False;
+    IntroLabel.WordWrap := True;
+    IntroLabel.Caption := IntroText;
+    IntroLabel.Height := ScaleY(48);
+
+    FootLabel := TNewStaticText.Create(Form);
+    FootLabel.Parent := Form;
+    FootLabel.Left := ScaleX(12);
+    FootLabel.Width := ContentWidth;
+    FootLabel.AutoSize := False;
+    FootLabel.WordWrap := True;
+    FootLabel.Caption := Footnote;
+    FootLabel.Height := ScaleY(52);
+    FootLabel.Top := Form.ClientHeight - ScaleY(96);
+
+    ButtonWidth := ScaleX(120);
+    Gap := ScaleX(8);
+    ButtonTop := Form.ClientHeight - ScaleY(40);
+
+    YesButton := TNewButton.Create(Form);
+    YesButton.Parent := Form;
+    YesButton.Caption := YesCaption;
+    YesButton.ModalResult := mrYes;
+    YesButton.Default := True;
+    YesButton.Width := ButtonWidth;
+    YesButton.Height := ScaleY(24);
+    YesButton.Left := Form.ClientWidth - ScaleX(12) - (ButtonWidth * 3) - (Gap * 2);
+    YesButton.Top := ButtonTop;
+
+    NoButton := TNewButton.Create(Form);
+    NoButton.Parent := Form;
+    NoButton.Caption := NoCaption;
+    NoButton.ModalResult := mrNo;
+    NoButton.Cancel := True; { Escape / title-bar X → No (escape hatch) }
+    NoButton.Width := ButtonWidth;
+    NoButton.Height := ScaleY(24);
+    NoButton.Left := YesButton.Left + ButtonWidth + Gap;
+    NoButton.Top := ButtonTop;
+
+    CheckAgainButton := TNewButton.Create(Form);
+    CheckAgainButton.Parent := Form;
+    CheckAgainButton.Caption := CheckAgainCaption;
+    CheckAgainButton.ModalResult := mrRetry;
+    CheckAgainButton.Width := ButtonWidth;
+    CheckAgainButton.Height := ScaleY(24);
+    CheckAgainButton.Left := NoButton.Left + ButtonWidth + Gap;
+    CheckAgainButton.Top := ButtonTop;
+
+    ListMemo := TNewMemo.Create(Form);
+    ListMemo.Parent := Form;
+    ListMemo.Left := ScaleX(12);
+    ListMemo.Top := IntroLabel.Top + IntroLabel.Height + ScaleY(8);
+    ListMemo.Width := ContentWidth;
+    ListMemo.Height := FootLabel.Top - ListMemo.Top - ScaleY(8);
+    ListMemo.ReadOnly := True;
+    ListMemo.ScrollBars := ssVertical;
+    ListMemo.WantReturns := True;
+    ListMemo.Text := ProcessList;
+
+    Form.FlipAndCenterIfNeeded(False, WizardForm, False);
+    ModalResult := Form.ShowModal();
+  finally
+    Form.Free();
+  end;
+
+  case ModalResult of
+    mrYes:
+      Result := IDYES;
+    mrRetry:
+      Result := IDCANCEL; { keep prior "check again" loop semantics }
+  else
+    Result := IDNO; { mrNo, mrCancel, X, Escape }
+  end;
+end;
+
 { Returns True when install should continue (possibly after closing blockers). }
 function ConfirmAndCloseBlockingInstallProcesses(): Boolean;
 var
   ProcessList: String;
   Response: Integer;
-  MessageText: String;
 begin
   Result := True;
 
@@ -3433,15 +3539,17 @@ begin
     if not ScanBlockingInstallProcesses(ProcessList) then
       Break;
 
-    MessageText :=
-      'These Node.js processes are still running and can block shim updates:' + #13#10 + #13#10 +
-      ProcessList + #13#10 + #13#10 +
-      '(Includes any node/npm/npx/corepack/pnpm/yarn process on this PC, plus NVM install folders.)' + #13#10 + #13#10 +
+    Response := PromptBlockingProcessList(
+      '{#Name}',
+      'These Node.js processes are still running and can block shim updates:',
+      ProcessList,
       'Yes = close them and continue' + #13#10 +
-      'No = continue without closing (shim rebuild may time out; you will need nvm reshim)' + #13#10 +
-      'Cancel = check again';
-
-    Response := MsgBox(MessageText, mbConfirmation, MB_YESNOCANCEL);
+        'No = continue without closing (shim rebuild may time out; run nvm reshim later)' + #13#10 +
+        'Check again = rescan after you close apps manually',
+      '&Yes',
+      '&No',
+      'Check &again'
+    );
 
     if Response = IDYES then
     begin
@@ -3998,7 +4106,6 @@ var
   DataRoot: String;
   ProcessList: String;
   Response: Integer;
-  MessageText: String;
 begin
   Result := True;
 
@@ -4020,14 +4127,17 @@ begin
     if not ScanBlockingUninstallProcesses(AppRoot, DataRoot, ProcessList) then
       Break;
 
-    MessageText :=
-      'Close these NVM processes before uninstall can continue:' + #13#10 + #13#10 +
-      ProcessList + #13#10 + #13#10 +
+    Response := PromptBlockingProcessList(
+      '{#Name} Uninstall',
+      'Close these NVM processes before uninstall can continue:',
+      ProcessList,
       'Yes = close them and continue' + #13#10 +
-      'No = cancel uninstall' + #13#10 +
-      'Cancel = check again';
-
-    Response := MsgBox(MessageText, mbConfirmation, MB_YESNOCANCEL);
+        'No = cancel uninstall' + #13#10 +
+        'Check again = rescan after you close apps manually',
+      '&Yes',
+      '&No',
+      'Check &again'
+    );
 
     if Response = IDNO then
     begin
