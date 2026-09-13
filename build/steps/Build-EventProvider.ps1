@@ -6,8 +6,8 @@ param(
 
 # Build NVMWindows.Events.man + resource DLL next to nvm.exe.
 # Required by common/eventlog.RegisterEventSource (wevtutil im /rf /mf /pf).
-# Message resource DLL is not Authenticode-signed (certified Sign-Executables
-# only signs .exe/.msi). Not a sync worker → no COSE.
+# Message resource DLL is Authenticode-signed with product .exe/.msi (not COSE;
+# COSE is for sync workers only).
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -169,8 +169,9 @@ Assert-NvmFile -Path $eventManifestOut -Label $eventProviderManifestFileName | O
 Assert-NvmFile -Path $eventResourceDllOut -Label $eventResourceDllFileName | Out-Null
 Write-Host "Event provider ready -> $eventManifestOut"
 Write-Host "Event resource DLL  -> $eventResourceDllOut"
-# Authenticode N/A for message resource DLL (certified same). COSE N/A (sync workers only).
-Write-Host "Signing            -> none (Events.dll is wevtutil message resource; not Authenticode/COSE)"
+# Authenticode via Sign-CommunityArtifacts / Sign-Executables (NVMWindows.Events.dll).
+# COSE N/A (sync workers only).
+Write-Host "Signing            -> Authenticode with product binaries (NVMWindows.Events.dll)"
 
 return @{
 	Manifest = $eventManifestOut

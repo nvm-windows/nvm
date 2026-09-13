@@ -28,6 +28,13 @@ if (-not $InstallerOnly) {
 		Assert-NvmFile -Path $path -Label ([System.IO.Path]::GetFileName($path)) | Out-Null
 		$signable.Add($path)
 	}
+	foreach ($path in (Get-NvmExpectedEventProviderPaths -BinRoot $ctx.BinRoot)) {
+		if ([System.IO.Path]::GetExtension($path) -ine ".dll") {
+			continue
+		}
+		Assert-NvmFile -Path $path -Label ([System.IO.Path]::GetFileName($path)) | Out-Null
+		$signable.Add($path)
+	}
 }
 
 if ($IncludeInstaller -or $InstallerOnly) {

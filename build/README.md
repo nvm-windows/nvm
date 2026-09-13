@@ -4,7 +4,7 @@ Authenticode-signed Inno Setup pipeline for NVM for Windows (core / community). 
 
 Produces `nvm.exe`, ETW event provider assets (`NVMWindows.Events.man` + `NVMWindows.Events.dll`), shims (`node` / `proxy` / `reshim`), `sync.exe`, and one Inno Setup `.exe`. Sync worker DLLs come from the certified release CDN (`assets.nvm-windows.com`) — this build does not compile them (CDN workers are already COSE Sign1'd by the certified pipeline).
 
-`NVMWindows.Events.dll` is a wevtutil message/resource DLL only. Same as certified: **not** Authenticode-signed (Artifact Signing covers `.exe`/`.msi`) and **not** COSE-signed (COSE is for sync workers).
+`NVMWindows.Events.dll` is a wevtutil message/resource DLL (`/NOENTRY`). It is **Authenticode-signed** with product `.exe`/`.msi` artifacts (same Artifact Signing account). It is **not** COSE-signed (COSE is for sync workers only).
 
 The `sync` Git submodule is **private**. Maintainers/CI compile it from source. Public from-source builds use `-DownloadSync` to fetch the matching release asset.
 

@@ -247,16 +247,19 @@ foreach ($item in $Path) {
 		throw "File not found for signing: $full"
 	}
 	$ext = [System.IO.Path]::GetExtension($full).ToLowerInvariant()
-	# Authenticode: .exe product binaries + .msi packages.
-	# Worker .dll = COSE Sign1 (Sign-SyncWorkers). .intunewin = container around signed MSI (not Authenticode).
-	if ($ext -ne ".exe" -and $ext -ne ".msi") {
-		throw "Only .exe/.msi signed here (worker .dll COSE = Sign-SyncWorkers.ps1): $full"
+	$name = [System.IO.Path]::GetFileName($full)
+	# Authenticode: .exe product binaries, .msi packages, and the ETW message
+	# resource DLL (wevtutil). Worker .dll = COSE Sign1 (Sign-SyncWorkers).
+	# .intunewin = container around signed MSI (not Authenticode).
+	$allowDll = ($ext -eq ".dll") -and ($name -ieq "NVMWindows.Events.dll")
+	if ($ext -ne ".exe" -and $ext -ne ".msi" -and -not $allowDll) {
+		throw "Only .exe/.msi/NVMWindows.Events.dll signed here (worker .dll COSE = Sign-SyncWorkers.ps1): $full"
 	}
 	$files.Add($full)
 }
 
 if ($files.Count -eq 0) {
-	throw "No .exe/.msi files provided for Artifact Signing."
+	throw "No .exe/.msi/NVMWindows.Events.dll files provided for Artifact Signing."
 }
 
 $spEnvSet = -not [string]::IsNullOrWhiteSpace((Get-EnvOrEmpty -Name "AZURE_CLIENT_ID"))

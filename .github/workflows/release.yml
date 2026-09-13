@@ -443,6 +443,14 @@ jobs:
             }
             Write-Host ("OK {0} -> {1}" -f $path, $sig.SignerCertificate.Subject)
           }
+          foreach ($path in (Get-NvmExpectedEventProviderPaths -BinRoot $binRoot)) {
+            if ([System.IO.Path]::GetExtension($path) -ine ".dll") { continue }
+            $sig = Get-AuthenticodeSignature -LiteralPath $path
+            if ($sig.Status -ne "Valid") {
+              throw ("Authenticode invalid for {0}: {1} ({2})" -f $path, $sig.Status, $sig.StatusMessage)
+            }
+            Write-Host ("OK {0} -> {1}" -f $path, $sig.SignerCertificate.Subject)
+          }
 
       - name: Verify outputs
         run: |
