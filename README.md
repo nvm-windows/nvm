@@ -26,6 +26,9 @@ _The original [nvm](https://github.com/nvm-sh/nvm) is a completely separate proj
 
 ## Features
 
+> [!IMPORTANT]
+> **Community Edition installers are now code-signed as of v2.0.0-hotfix.2.**
+
 |Feature|Description|
 |:-|:-|
 |Compatibility<br/><br/><br/>|&bull; No mandatory administrator privileges.<br/>&bull; Shim mode - no symlinks, fast (written in Zig).<br/>&bull; Link mode - Zero-latency, junctions with symlink fallback.|
@@ -40,7 +43,7 @@ Commercial **[Certified Builds](https://docs.nvm-windows.com/guide/builds/)** ar
 
 |Feature|Description|
 |:-|:-|
-|Code Signing<br/><br/>|&bull; Installers<br />&bull; Executables|
+|IT-Managed Installation<br/><br/>|&bull; Windows-protected installation directory<br />&bull; Administrator-controlled deployment and device management|
 |Installers<br/><br/>|&bull; MSI/MST<br />&bull; Microsoft Intune|
 |Advanced Logging ⭐<br/><br/><br/><br/>|&bull; Fully auditable<br />&bull; Structured<br />&bull; Dedicated Event Source<br />&bull; Native SIEM integration|
 |Policy Enforcement ⭐<br/><br/><br/><br/><br/>|&bull; Active Directory/Entra integration<br/>&bull; Restrict Node.js versions/ranges (e.g. no EOL versions, LTS only, etc.)<br/>&bull; Control nvm-windows, Node/npm/npx settings<br/>&bull; Advanced proxy (IWA, WPAD/PAC) support<br />&bull; Private Node.js download mirror|
