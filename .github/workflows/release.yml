@@ -22,8 +22,8 @@ on:
         required: false
         default: false
         type: boolean
-      hotfix:
-        description: Optional hotfix stamp (e.g. 1 or hotfix.1 → {manifest}-hotfix.1). Leave empty for manifest version.
+      prerelease:
+        description: Optional prerelease stamp appended to manifest (e.g. beta.1 → 2.0.1-beta.1; 1 or hotfix.1 → …-hotfix.1). Leave empty for manifest version.
         required: false
         default: ""
         type: string
@@ -118,7 +118,7 @@ jobs:
           PUBLISH_RELEASE: ${{ inputs.publish_release }}
           OVERRIDE_EXISTING_RELEASE: ${{ inputs.override_existing_release }}
           ARCHES: ${{ steps.matrix.outputs.arches }}
-          HOTFIX: ${{ inputs.hotfix }}
+          HOTFIX: ${{ inputs.prerelease }}
         run: |
           . .\build\common.ps1
           $null = Initialize-NvmBuildContext
@@ -130,10 +130,10 @@ jobs:
           }
           $effective = Resolve-NvmHotfixVersion -BaseVersion $baseVersion -Hotfix $env:HOTFIX
           if ($effective -ne $baseVersion) {
-            Write-Host ("Hotfix stamp -> {0} (base {1})" -f $effective, $baseVersion)
+            Write-Host ("Prerelease stamp -> {0} (base {1})" -f $effective, $baseVersion)
           }
           else {
-            Write-Host ("Release version -> {0} (no hotfix input)" -f $effective)
+            Write-Host ("Release version -> {0} (no prerelease input)" -f $effective)
           }
           [Environment]::SetEnvironmentVariable("NVM_CLI_VERSION", $effective, "Process")
           if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_ENV)) {
@@ -241,7 +241,7 @@ jobs:
             throw "git submodule update failed with exit code $LASTEXITCODE"
           }
 
-      - name: Stamp CLI manifest version (hotfix / gate)
+      - name: Stamp CLI manifest version (prerelease / gate)
         env:
           EFFECTIVE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -253,7 +253,7 @@ jobs:
           $base = (Get-Content -LiteralPath (Get-NvmCliManifestPath) -Raw -Encoding UTF8 | ConvertFrom-Json).version
           Set-NvmCliManifestVersion -Version $env:EFFECTIVE_VERSION
           if ($env:EFFECTIVE_VERSION -ne [string]$base) {
-            Write-Host ("Hotfix stamp -> {0} (base {1})" -f $env:EFFECTIVE_VERSION, $base)
+            Write-Host ("Prerelease stamp -> {0} (base {1})" -f $env:EFFECTIVE_VERSION, $base)
           }
 
       - name: Set up Go

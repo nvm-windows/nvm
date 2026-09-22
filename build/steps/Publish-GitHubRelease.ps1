@@ -621,8 +621,8 @@ Org Program Files / MSI / Intune: use NVM for Windows Certified Builds.
 
 Assets per arch: Inno Setup installer (``*-setup.exe``) and prebuilt ``sync.exe`` (``*-sync.exe``) for public ``-DownloadSync`` builds.
 "@
-	if ($Version -match '(?i)-hotfix\.\d+') {
-		$intro += "`n`nHotfix stamp applied at build time via the Community Release ``hotfix`` workflow input (manifest base left unchanged in git)."
+	if ($Version -match '^\d+\.\d+\.\d+-') {
+		$intro += "`n`nPrerelease stamp applied at build time via the Community Release ``prerelease`` workflow input (manifest base left unchanged in git)."
 	}
 	$commits = Get-NvmReleaseCommitSummarySection -Tag $Tag -HeadRef $headRef
 	$newContributors = Get-NvmReleaseNewContributorsSection -Tag $Tag -HeadRef $headRef
@@ -675,8 +675,8 @@ function New-NvmDraftRelease {
 			"--title", $Tag,
 			"--notes-file", $notesFile
 		)
-		# hotfix stamps are intentional GitHub prereleases (validation drops, not "latest").
-		if ($Version -match '(?i)(alpha|beta|rc|preview|pre|hotfix)') {
+		# Any stamped semver (x.y.z-*) is a GitHub prerelease (validation drops, not "latest").
+		if ($Version -match '^\d+\.\d+\.\d+-') {
 			$createArgs += "--prerelease"
 		}
 
