@@ -18,6 +18,9 @@ Requires: Go (see `cli/src/go.mod`), [qgo](https://github.com/quikdev/go), Zig (
 .\build\main.ps1 -Architecture amd64
 .\build\main.ps1 -Architecture arm64 -SkipInstaller
 .\build\main.ps1 -Component Cli
+.\build\main.ps1 -Hotfix beta.1
+.\build\main.ps1 -Hotfix 2
+.\build\main.ps1 -Version 2.0.1-hotfix.2
 
 # Public clone (no sync source): download prebuilt sync.exe from the GitHub Release
 .\build\main.ps1 -DownloadSync
@@ -29,6 +32,8 @@ Requires: Go (see `cli/src/go.mod`), [qgo](https://github.com/quikdev/go), Zig (
 
 | Flag | Purpose |
 |------|---------|
+| `-Hotfix` | Same as GHA `prerelease`: any stamp → `{manifest}-{stamp}` (e.g. `beta.1` → `2.0.1-beta.1`). Bare digit `1` → `-hotfix.1` (WiX/Inno revision). Temp-stamps `cli/src/manifest.json` for qgo embed, sets process `NVM_CLI_VERSION`, restores both after build (git stays clean). Mutually exclusive with `-Version`. |
+| `-Version` | Full special version override (e.g. `2.0.1-beta.1`). Same temp stamp/restore as `-Hotfix`. Mutually exclusive with `-Hotfix`. |
 | `-DownloadSync` | Fetch `nvm-<version>-<arch>-sync.exe` from GitHub Releases instead of compiling sync |
 | `-SyncReleaseTag` | Override release tag (default: `v` + `cli/src/manifest.json` version) |
 | `-SyncReleaseRepo` | Override `owner/repo` (default: `nvm-windows/nvm`) |
@@ -51,14 +56,14 @@ Workflow: [Release Community Build](../.github/workflows/release.yml) (`workflow
 | `architecture` | `both` | `amd64`, `arm64`, or both |
 | `publish_release` | true | Draft → upload assets → publish |
 | `override_existing_release` | false | Replace setup.exe **and** sync.exe on existing tag |
-| `hotfix` | _(empty)_ | Optional stamp: `1` or `hotfix.1` → `{manifest}-hotfix.N` without committing `cli/src/manifest.json` |
+| `prerelease` | _(empty)_ | Optional stamp: `beta.1` → `{manifest}-beta.1`; bare `1` → `{manifest}-hotfix.1`. Leave empty for manifest version. |
 
 GitHub Release assets per architecture:
 
 - `nvm-<version>-<arch>-setup.exe` — Inno Setup installer
 - `nvm-<version>-<arch>-sync.exe` — prebuilt sync for `-DownloadSync`
 
-Tag = `v` + effective version (`cli/src/manifest.json` version, plus optional `hotfix` stamp). Runner patches manifest before CLI/Inno build so embeds and `AppVersion` match. Inno `VersionInfoVersion` already maps `-hotfix.N` → fourth numeric field (`2.0.1-hotfix.1` → `2.0.1.1`). Hotfix stamps mark the GitHub Release as **`--prerelease`**.
+Tag = `v` + effective version (`cli/src/manifest.json` version, plus optional `prerelease` stamp). Runner patches manifest before CLI/Inno build so embeds and `AppVersion` match. Inno `VersionInfoVersion` maps `-hotfix.N` → fourth numeric field (`2.0.1-hotfix.1` → `2.0.1.1`). Any stamped `x.y.z-*` release is marked GitHub **`--prerelease`**.
 
 ### WinGet
 

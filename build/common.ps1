@@ -64,6 +64,8 @@ function Resolve-NvmHotfixVersion {
 	param(
 		[Parameter(Mandatory = $true)]
 		[string]$BaseVersion,
+		# Optional prerelease stamp (workflow input name may be prerelease/hotfix).
+		[Alias("Prerelease")]
 		[string]$Hotfix = ""
 	)
 
@@ -71,23 +73,34 @@ function Resolve-NvmHotfixVersion {
 	if ([string]::IsNullOrWhiteSpace($base)) {
 		throw "Resolve-NvmHotfixVersion: BaseVersion is empty"
 	}
+	if ($base -notmatch '^\d+\.\d+\.\d+$') {
+		throw ("Resolve-NvmHotfixVersion: base version '{0}' must be major.minor.patch (no prerelease). Stamp via workflow input instead." -f $base)
+	}
 
 	$raw = if ($null -eq $Hotfix) { "" } else { $Hotfix.Trim() }
 	if ([string]::IsNullOrWhiteSpace($raw)) {
 		return $base
 	}
 
+	# Allow accidental "-beta.1" / "vbeta.1" from copy-paste.
+	$raw = $raw -replace '^[vV-]+', ''
+	if ([string]::IsNullOrWhiteSpace($raw)) {
+		return $base
+	}
+
 	$suffix = $null
 	if ($raw -match '^\d+$') {
+		# Bare digit keeps historical hotfix.N (WiX/Inno revision mapping).
 		$suffix = "hotfix.$raw"
 	}
-	elseif ($raw -match '^(?i)hotfix\.(\d+)$') {
-		$suffix = "hotfix.$($Matches[1])"
+	elseif ($raw -match '^[A-Za-z0-9][A-Za-z0-9.-]*$') {
+		# Any semver-ish prerelease id: beta.1, hotfix.1, rc.1, preview.3, …
+		$suffix = $raw
 	}
 	else {
 		throw @"
-Resolve-NvmHotfixVersion: invalid hotfix input '$raw'.
-Use empty (no override), a digit run (e.g. 1 -> -hotfix.1), or hotfix.N (e.g. hotfix.1).
+Resolve-NvmHotfixVersion: invalid prerelease stamp '$raw'.
+Use empty (manifest version), a digit (1 -> -hotfix.1), or a stamp like beta.1 / hotfix.1 / rc.1.
 "@
 	}
 
