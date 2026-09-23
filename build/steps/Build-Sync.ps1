@@ -111,7 +111,7 @@ function Install-NvmSyncFromRelease {
 Failed to download sync.exe from $uri
 $($_.Exception.Message)
 
-Use a published community release that includes nvm-<version>-<arch>-sync.exe,
+Use a published community release that includes nvm-<version>-<x64|arm64>-sync.exe,
 or pass -SyncReleaseTag / -SyncReleaseRepo. Sync source is private — compile only with maintainer access.
 "@
 	}
@@ -218,7 +218,7 @@ else {
 Sync source not found: $syncSrcRoot
 
 The sync repository is private. Either:
-  - Pass -DownloadSync to fetch nvm-<version>-<arch>-sync.exe from the GitHub Release, or
+  - Pass -DownloadSync to fetch nvm-<version>-<x64|arm64>-sync.exe from the GitHub Release, or
   - Build with maintainer access to the sync submodule.
 "@
 }

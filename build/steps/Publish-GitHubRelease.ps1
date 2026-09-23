@@ -1,8 +1,8 @@
 # Gate or publish a GitHub Release for the community Inno Setup build.
 # Version comes from cli/src/manifest.json.
 # Uploads per architecture:
-#   nvm-<version>-<arch>-setup.exe
-#   nvm-<version>-<arch>-sync.exe   (prebuilt sync for public -DownloadSync builds)
+#   nvm-<version>-<x64|arm64>-setup.exe
+#   nvm-<version>-<x64|arm64>-sync.exe   (prebuilt sync for public -DownloadSync builds)
 #
 # Modes:
 #   Gate    — fail fast before long build if tag burned / already complete
@@ -162,7 +162,7 @@ function Test-ReleaseAssetNameMatchesArchitecture {
 		[ValidateSet("setup", "sync", "any")]
 		[string]$Kind = "any"
 	)
-	$arch = [regex]::Escape($Architecture)
+	$arch = [regex]::Escape((Get-NvmReleaseArchToken -Architecture $Architecture))
 	switch ($Kind) {
 		"setup" { return ($Name -match ("-{0}-setup\.exe$" -f $arch)) }
 		"sync" { return ($Name -match ("-{0}-sync\.exe$" -f $arch)) }

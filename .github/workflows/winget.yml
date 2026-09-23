@@ -141,7 +141,7 @@ jobs:
           $version = $tag -replace '^[vV]', ''
           $failed = $false
 
-          foreach ($arch in @('amd64', 'arm64')) {
+          foreach ($arch in @('x64', 'arm64')) {
             $asset = "nvm-$version-$arch-setup.exe"
             $source = Join-Path $PWD "release-assets\$asset"
             if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
@@ -198,11 +198,11 @@ jobs:
             "ran=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           }
 
-          # Run the amd64 Inno installer from release-assets (already downloaded above).
+          # Run the x64 Inno installer from release-assets (already downloaded above).
           # winget install --manifest re-downloads from GitHub and can hang on GHA
           # (elevation prompts, winget dependency resolution).
           $version = $env:RELEASE_TAG.Trim() -replace '^[vV]', ''
-          $installer = Join-Path $PWD "release-assets\nvm-$version-amd64-setup.exe"
+          $installer = Join-Path $PWD "release-assets\nvm-$version-x64-setup.exe"
           if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
             Write-InstallTestSkipped "release asset missing: $installer"
             exit 0

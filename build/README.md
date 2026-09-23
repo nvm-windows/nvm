@@ -34,7 +34,7 @@ Requires: Go (see `cli/src/go.mod`), [qgo](https://github.com/quikdev/go), Zig (
 |------|---------|
 | `-Hotfix` | Same as GHA `prerelease`: any stamp → `{manifest}-{stamp}` (e.g. `beta.1` → `2.0.1-beta.1`). Bare digit `1` → `-hotfix.1` (WiX/Inno revision). Temp-stamps `cli/src/manifest.json` for qgo embed, sets process `NVM_CLI_VERSION`, restores both after build (git stays clean). Mutually exclusive with `-Version`. |
 | `-Version` | Full special version override (e.g. `2.0.1-beta.1`). Same temp stamp/restore as `-Hotfix`. Mutually exclusive with `-Hotfix`. |
-| `-DownloadSync` | Fetch `nvm-<version>-<arch>-sync.exe` from GitHub Releases instead of compiling sync |
+| `-DownloadSync` | Fetch `nvm-<version>-<x64\|arm64>-sync.exe` from GitHub Releases instead of compiling sync |
 | `-SyncReleaseTag` | Override release tag (default: `v` + `cli/src/manifest.json` version) |
 | `-SyncReleaseRepo` | Override `owner/repo` (default: `nvm-windows/nvm`) |
 
@@ -42,8 +42,8 @@ Output:
 
 - Executables → `bin\`
 - Event provider → `bin\NVMWindows.Events.man`, `bin\NVMWindows.Events.dll` (shipped next to `nvm.exe` in the installer)
-- Installer → `.dist\nvm-<version>-<arch>-setup.exe`
-- Staged sync release asset → `.dist\nvm-<version>-<arch>-sync.exe`
+- Installer → `.dist\nvm-<version>-<x64|arm64>-setup.exe` (`-Architecture amd64` writes `x64`)
+- Staged sync release asset → `.dist\nvm-<version>-<x64|arm64>-sync.exe`
 
 Requires Windows SDK (`mc.exe` / `rc.exe`) and Visual Studio `link.exe` for the event resource DLL.
 
@@ -60,8 +60,8 @@ Workflow: [Release Community Build](../.github/workflows/release.yml) (`workflow
 
 GitHub Release assets per architecture:
 
-- `nvm-<version>-<arch>-setup.exe` — Inno Setup installer
-- `nvm-<version>-<arch>-sync.exe` — prebuilt sync for `-DownloadSync`
+- `nvm-<version>-x64-setup.exe` and `nvm-<version>-arm64-setup.exe` — Inno Setup installers
+- `nvm-<version>-x64-sync.exe` and `nvm-<version>-arm64-sync.exe` — prebuilt sync for `-DownloadSync`
 
 Tag = `v` + effective version (`cli/src/manifest.json` version, plus optional `prerelease` stamp). Runner patches manifest before CLI/Inno build so embeds and `AppVersion` match. Inno `VersionInfoVersion` maps `-hotfix.N` → fourth numeric field (`2.0.1-hotfix.1` → `2.0.1.1`). Any stamped `x.y.z-*` release is marked GitHub **`--prerelease`**.
 
@@ -69,13 +69,13 @@ Tag = `v` + effective version (`cli/src/manifest.json` version, plus optional `p
 
 Workflow: [Publish to WinGet](../.github/workflows/winget.yml) (`workflow_dispatch`).
 
-Use it only after a public GitHub Release has both `amd64` and `arm64` setup assets. It:
+Use it only after a public GitHub Release has both `x64` and `arm64` setup assets. It:
 
 1. Downloads release installers.
 2. Generates `AuthorSoftware.NVMforWindows` manifests and SHA256 values.
 3. Verifies anonymous public release URLs produce matching hashes.
 4. Runs `winget validate`.
-5. By default, runs a silent install smoke test from the downloaded amd64 setup asset, runs `nvm --version`, then uninstalls.
+5. By default, runs a silent install smoke test from the downloaded x64 setup asset, runs `nvm --version`, then uninstalls.
 6. Uploads the generated manifests as a workflow artifact.
 7. When `dry_run` is **false**, runs `wingetcreate submit` against `microsoft/winget-pkgs` (needs package already present under that ID).
 

@@ -223,6 +223,19 @@ function Get-NvmExpectedEventProviderPaths {
 	)
 }
 
+function Get-NvmReleaseArchToken {
+	param(
+		[Parameter(Mandatory = $true)]
+		[ValidateSet("amd64", "arm64")]
+		[string]$Architecture
+	)
+	# Go/build target stays amd64. Published installer and sync asset names use x64.
+	if ($Architecture -eq "amd64") {
+		return "x64"
+	}
+	return $Architecture
+}
+
 function Get-NvmInstallerSetupPath {
 	param(
 		[Parameter(Mandatory = $true)]
@@ -236,8 +249,9 @@ function Get-NvmInstallerSetupPath {
 	if ([string]::IsNullOrWhiteSpace($DistRoot)) {
 		$DistRoot = Get-NvmDistRoot
 	}
-	# Inno OutputBaseFilename: {manifest.name}-{version}-{arch}-setup
-	return (Join-Path $DistRoot ("nvm-{0}-{1}-setup.exe" -f $Version, $Architecture))
+	# Inno OutputBaseFilename: nvm-{version}-{x64|arm64}-setup
+	$archToken = Get-NvmReleaseArchToken -Architecture $Architecture
+	return (Join-Path $DistRoot ("nvm-{0}-{1}-setup.exe" -f $Version, $archToken))
 }
 
 function Get-NvmSyncReleaseAssetPath {
@@ -254,7 +268,8 @@ function Get-NvmSyncReleaseAssetPath {
 		$DistRoot = Get-NvmDistRoot
 	}
 	# Staged next to setup for GitHub Release upload / -DownloadSync fetch
-	return (Join-Path $DistRoot ("nvm-{0}-{1}-sync.exe" -f $Version, $Architecture))
+	$archToken = Get-NvmReleaseArchToken -Architecture $Architecture
+	return (Join-Path $DistRoot ("nvm-{0}-{1}-sync.exe" -f $Version, $archToken))
 }
 
 function Get-NvmSyncReleaseAssetName {
@@ -265,7 +280,8 @@ function Get-NvmSyncReleaseAssetName {
 		[ValidateSet("amd64", "arm64")]
 		[string]$Architecture
 	)
-	return ("nvm-{0}-{1}-sync.exe" -f $Version, $Architecture)
+	$archToken = Get-NvmReleaseArchToken -Architecture $Architecture
+	return ("nvm-{0}-{1}-sync.exe" -f $Version, $archToken)
 }
 
 function Add-NvmGitHubJobSummary {

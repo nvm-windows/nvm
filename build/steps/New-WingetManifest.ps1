@@ -47,13 +47,13 @@ if (-not (Test-Path -LiteralPath $installerRoot -PathType Container)) {
 }
 
 $installers = @(
-	@{ BuildArchitecture = "amd64"; WingetArchitecture = "x64" }
-	@{ BuildArchitecture = "arm64"; WingetArchitecture = "arm64" }
+	@{ FileArchitecture = "x64"; WingetArchitecture = "x64" }
+	@{ FileArchitecture = "arm64"; WingetArchitecture = "arm64" }
 )
 
 $installerEntries = New-Object System.Collections.Generic.List[string]
 foreach ($installer in $installers) {
-	$assetName = "nvm-{0}-{1}-setup.exe" -f $version, $installer.BuildArchitecture
+	$assetName = "nvm-{0}-{1}-setup.exe" -f $version, $installer.FileArchitecture
 	$assetPath = Join-Path $installerRoot $assetName
 	if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
 		throw "Required release asset missing: $assetPath"
