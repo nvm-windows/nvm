@@ -72,7 +72,7 @@ Workflow: [Publish to WinGet](../.github/workflows/winget.yml) (`workflow_dispat
 Use it only after a public GitHub Release has both `x64` and `arm64` setup assets. It:
 
 1. Downloads release installers.
-2. Generates `AuthorSoftware.NVMforWindows` manifests and SHA256 values.
+2. Generates `AuthorSoftware.NVMWindows` manifests and SHA256 values.
 3. Verifies anonymous public release URLs produce matching hashes.
 4. Runs `winget validate`.
 5. By default, runs a silent install smoke test from the downloaded x64 setup asset, runs `nvm --version`, then uninstalls.

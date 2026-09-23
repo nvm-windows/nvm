@@ -24,7 +24,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$packageIdentifier = "AuthorSoftware.NVMforWindows"
+$packageIdentifier = "AuthorSoftware.NVMWindows"
 $publisher = "Author Software Inc."
 $packageName = "NVM for Windows"
 $productCode = "40078385-F676-4C61-9A9C-F9028599D6D3_is1"
@@ -68,7 +68,7 @@ foreach ($installer in $installers) {
 "@.TrimEnd())
 }
 
-$manifestRoot = Join-Path $OutputDirectory ("manifests\a\AuthorSoftware\NVMforWindows\{0}" -f $version)
+$manifestRoot = Join-Path $OutputDirectory ("manifests\a\AuthorSoftware\NVMWindows\{0}" -f $version)
 New-Item -ItemType Directory -Force -Path $manifestRoot | Out-Null
 
 $versionManifest = @"
