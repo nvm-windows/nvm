@@ -40,7 +40,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  WINGET_PACKAGE_IDENTIFIER: AuthorSoftware.NVMforWindows
+  WINGET_PACKAGE_IDENTIFIER: AuthorSoftware.NVMWindows
 
 jobs:
   validate:
@@ -177,7 +177,7 @@ jobs:
         id: validate
         run: |
           $version = ($env:RELEASE_TAG.Trim() -replace '^[vV]', '')
-          $manifestDir = Join-Path $PWD "winget-output\manifests\a\AuthorSoftware\NVMforWindows\$version"
+          $manifestDir = Join-Path $PWD "winget-output\manifests\a\AuthorSoftware\NVMWindows\$version"
           $manifest = Join-Path $manifestDir "$env:WINGET_PACKAGE_IDENTIFIER.yaml"
           if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
             throw "Version manifest missing: $manifest"
