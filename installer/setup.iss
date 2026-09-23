@@ -46,7 +46,11 @@
 #define IconFullPath AddBackslash(ProjectRoot) + Icon
 #define IconErrorMessage "Icon file not found: " + IconFullPath
 #ifndef OutputFileName
-  #define OutputFileName Alias + "-" + Version + "-" + Architecture + "-setup"
+  #if Architecture == "amd64"
+    #define OutputFileName Alias + "-" + Version + "-x64-setup"
+  #else
+    #define OutputFileName Alias + "-" + Version + "-" + Architecture + "-setup"
+  #endif
 #endif
 
 #pragma message IconErrorMessage

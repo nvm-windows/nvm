@@ -51,7 +51,7 @@ Successful full build:
 - `bin\nvm.exe`
 - `bin\.shim\node.exe`
 - `bin\utils\proxy.exe`, `reshim.exe`, `sync.exe`
-- `.dist\nvm-<version>-<arch>-setup.exe`
+- `.dist\nvm-<version>-x64-setup.exe` or `.dist\nvm-<version>-arm64-setup.exe` (`-Architecture amd64` writes `x64`)
 
 ## Troubleshooting
 
