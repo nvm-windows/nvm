@@ -3142,6 +3142,29 @@ begin
     Log('Installed-version registration returned exit code ' + IntToStr(ResultCode) + '.');
 end;
 
+procedure SignInstalledVersionScripts();
+var
+  ResultCode: Integer;
+begin
+  { 2.0.0 upgrades have Node installs and no npm-cli.js script-trust rows.
+    reshim.exe swallows signer failures; call nvm directly and keep the exit code. }
+  if not Exec(
+    ExpandConstant('{app}\{#Alias}.exe'),
+    '--sign-installed-versions',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+  begin
+    AppendInstallLogWarn('SignInstalledVersionScripts: unable to start nvm.exe --sign-installed-versions');
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+    AppendInstallLogWarn('SignInstalledVersionScripts: nvm.exe --sign-installed-versions returned exit code ' + IntToStr(ResultCode));
+end;
+
 procedure RunForceReshimAtEnd();
 var
   ResultCode: Integer;
@@ -3777,6 +3800,7 @@ begin
     FinalizingStep := FinalizingStep + 1;
     UpdateFinalizingProgress(FinalizingPage, 'Rebuilding and prewarming module shims...', FinalizingStep, FinalizingTotal);
     RunForceReshimAtEnd();
+    SignInstalledVersionScripts();
     PrewarmNpmAndNpxShims();
     WarnIfShimFinalizeIncomplete();
 
