@@ -2,7 +2,10 @@
 
 # <sub><img src="https://github.com/nvm-windows.png?s=50" width="32" align="bottom" /></sub> NVM for Windows
 
-The <a href="https://docs.microsoft.com/en-us/windows/nodejs/setup-on-windows">Microsoft</a>/<a href="https://cloud.google.com/nodejs/docs/setup#installing_nvm">Google</a> recommended Node.js version manager for millions of Windows developers.
+The <a href="https://docs.microsoft.com/en-us/windows/nodejs/setup-on-windows">Microsoft</a>/<a href="https://cloud.google.com/nodejs/docs/setup#installing_nvm">Google</a> recommended Node.js version manager for millions of Windows developers. 
+
+> [!IMPORTANT]
+> **You may already have NVM for Windows.** [Microsoft Zenith](https://blogs.windows.com/windowsdeveloper/2026/09/04/announcing-project-zenith-the-ready-to-code-windows-experience/) preconfigures NVM, starting with AMD Ryzen AI Halo devices. More devices from OEM and silicon partners will be available in the coming months.  
 
 <details>
 <summary><b>NVM for Windows is not the same thing as nvm!</b> (expand for details)</summary>
