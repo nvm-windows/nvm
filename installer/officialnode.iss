@@ -423,7 +423,9 @@ begin
     end;
   end;
 
-  UserModules := ExpandConstant('{userappdata}\npm\node_modules');
+  UserModules := Trim(ExpandConstant('{param:OFFICIALNODEMODULES}'));
+  if UserModules = '' then
+    UserModules := ExpandConstant('{userappdata}\npm\node_modules');
   DestModules := AddBackslash(DestDir) + 'node_modules';
   if DirExists(UserModules) then
   begin
@@ -465,6 +467,16 @@ begin
   AppendInstallLogWarn('DropOfficialNode: ' + OfficialNodeDropError);
 end;
 
+function OfficialNodeUninstallWasRecorded(const FileName, Args: String): Boolean;
+var
+  LogPath: String;
+begin
+  LogPath := Trim(ExpandConstant('{param:OFFICIALNODELOG}'));
+  Result := LogPath <> '';
+  if Result then
+    SaveStringToFile(LogPath, FileName + ' ' + Args + #13#10, False);
+end;
+
 function DropOfficialNodeInstall(): Boolean;
 var
   ResultCode: Integer;
@@ -477,6 +489,11 @@ begin
   if OfficialNodeIsMsi and (OfficialNodeProductCode <> '') then
   begin
     Args := '/x ' + OfficialNodeProductCode + ' /qn /norestart';
+    if OfficialNodeUninstallWasRecorded(ExpandConstant('{sys}\msiexec.exe'), Args) then
+    begin
+      Result := True;
+      Exit;
+    end;
     Ok := ShellExec(
       'runas',
       ExpandConstant('{sys}\msiexec.exe'),
@@ -503,6 +520,11 @@ begin
     StringChangeEx(Args, '/i', '/x', True);
     if Pos('/qn', LowerCase(Args)) = 0 then
       Args := Args + ' /qn /norestart';
+    if OfficialNodeUninstallWasRecorded(ExpandConstant('{cmd}'), '/C ' + Args) then
+    begin
+      Result := True;
+      Exit;
+    end;
     Ok := ShellExec('runas', ExpandConstant('{cmd}'), '/C ' + Args, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     if not UninstallResultOk(Ok, ResultCode) then
     begin
@@ -515,6 +537,11 @@ begin
 
   if Trim(OfficialNodeUninstallString) <> '' then
   begin
+    if OfficialNodeUninstallWasRecorded(ExpandConstant('{cmd}'), '/C ' + OfficialNodeUninstallString) then
+    begin
+      Result := True;
+      Exit;
+    end;
     Ok := ShellExec('runas', ExpandConstant('{cmd}'), '/C ' + OfficialNodeUninstallString, '', SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode);
     if not UninstallResultOk(Ok, ResultCode) then
     begin
@@ -530,6 +557,9 @@ begin
   AppendInstallLogWarn('DropOfficialNode: ' + OfficialNodeDropError);
 end;
 
+procedure ExitProcess(uExitCode: Cardinal);
+  external 'ExitProcess@kernel32.dll stdcall';
+
 procedure AbortInstallBecauseOfficialNodeRemains();
 var
   MessageText: String;
@@ -543,8 +573,12 @@ begin
     'Removing it may require elevated privileges.';
   AppendInstallLogWarn('ApplyOfficialNodeChoice: ' + OfficialNodeDropError);
   if not WizardSilent then
+  begin
     MsgBox(MessageText, mbError, MB_OK);
-  Abort;
+    Abort;
+  end;
+  { ssPostInstall is too late for Abort to change the process exit code. }
+  ExitProcess(1);
 end;
 
 procedure ApplyOfficialNodeChoice();
