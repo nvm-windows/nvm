@@ -43,6 +43,11 @@ on:
         required: false
         default: ""
         type: string
+      toast_summary:
+        description: "Hotfix toast body (plain text, max 80 characters). Required for hotfix. Shown in the Windows Hotfixes notification."
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -71,6 +76,7 @@ jobs:
       tag: ${{ steps.gate.outputs.tag }}
       matrix: ${{ steps.matrix.outputs.matrix }}
       arches: ${{ steps.matrix.outputs.arches }}
+      toast_summary: ${{ steps.gate.outputs.toast_summary }}
     steps:
       - name: Check GitHub App secrets
         env:
@@ -136,6 +142,7 @@ jobs:
           ARCHES: ${{ steps.matrix.outputs.arches }}
           RELEASE_KIND: ${{ inputs.release_kind }}
           HOTFIX_BASE: ${{ inputs.hotfix_base }}
+          TOAST_SUMMARY: ${{ inputs.toast_summary }}
         run: |
           . .\build\common.ps1
           $null = Initialize-NvmBuildContext -SkipZig
@@ -162,6 +169,13 @@ jobs:
           }
           else {
             Write-Host ("Release version -> {0} (no prerelease)" -f $effective)
+          }
+          $toastSummary = Resolve-NvmToastSummary -Summary $env:TOAST_SUMMARY -Required:($kind -eq "hotfix")
+          if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_OUTPUT)) {
+            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value ("toast_summary={0}" -f $toastSummary)
+          }
+          if (-not [string]::IsNullOrWhiteSpace($toastSummary)) {
+            Write-Host ("Toast summary -> {0} ({1} chars)" -f $toastSummary, $toastSummary.Length)
           }
           [Environment]::SetEnvironmentVariable("NVM_CLI_VERSION", $effective, "Process")
           if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_ENV)) {
@@ -547,6 +561,7 @@ jobs:
           OVERRIDE_EXISTING_RELEASE: ${{ inputs.override_existing_release }}
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
           ARCHES: ${{ needs.prepare.outputs.arches }}
+          TOAST_SUMMARY: ${{ needs.prepare.outputs.toast_summary }}
         run: |
           $archList = @($env:ARCHES -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
           if ($archList.Count -eq 0) {
@@ -568,6 +583,7 @@ jobs:
             Version       = $env:RELEASE_VERSION
             AssetRoot     = (Join-Path $PWD "release-assets")
             Enabled       = $true
+            ToastSummary  = $env:TOAST_SUMMARY
           }
           if ($env:OVERRIDE_EXISTING_RELEASE -eq "true") {
             $pubArgs["OverrideExisting"] = $true

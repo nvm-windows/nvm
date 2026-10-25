@@ -25,7 +25,10 @@ param(
 
 	[string]$Version = "",
 
-	[string]$AssetRoot = ""
+	[string]$AssetRoot = "",
+
+	# Plain-text Hotfixes toast body. Required for x.y.z-hotfix.N. Max 80 chars (GHA validates).
+	[string]$ToastSummary = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -68,6 +71,8 @@ if ([string]::IsNullOrWhiteSpace($version)) {
 	$ctx = Initialize-NvmBuildContext
 	$version = [string]$ctx.CliVersion
 }
+
+$toastSummary = Resolve-NvmToastSummary -Summary $ToastSummary -Required:(($Mode -eq "Publish") -and (Test-NvmHotfixVersion $version))
 
 function Get-NvmReleaseTag {
 	param([string]$Version)
@@ -628,7 +633,12 @@ Assets per arch: Inno Setup installer (``*-setup.exe``) and prebuilt ``sync.exe`
 	$newContributors = Get-NvmReleaseNewContributorsSection -Tag $Tag -HeadRef $headRef
 	$contributorIcons = Get-NvmReleaseContributorsIconsSection -Tag $Tag -HeadRef $headRef
 	$footer = Get-NvmReleaseNotesFooter
-	$body = $intro.TrimEnd() + "`n`n" + $commits.TrimEnd()
+	$summarySection = Get-NvmToastSummaryNotesSection -Summary $toastSummary
+	$body = $intro.TrimEnd()
+	if (-not [string]::IsNullOrWhiteSpace($summarySection)) {
+		$body = $summarySection.TrimEnd() + "`n`n" + $body
+	}
+	$body = $body + "`n`n" + $commits.TrimEnd()
 	if (-not [string]::IsNullOrWhiteSpace($newContributors)) {
 		$body += "`n`n" + $newContributors.TrimEnd()
 	}
