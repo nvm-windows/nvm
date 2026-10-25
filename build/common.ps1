@@ -232,10 +232,10 @@ function Resolve-NvmToastSummary {
 	$text = if ($null -eq $Summary) { "" } else { $Summary.Trim() }
 	$text = [regex]::Replace($text, '\s+', ' ').Trim()
 	if ($Required -and [string]::IsNullOrWhiteSpace($text)) {
-		throw "hotfix requires toast_summary: a plain-text description of what this hotfix fixes, at most 80 characters so the Windows Hotfixes toast does not ellipsize. Re-run Release Community Build with release_kind=hotfix and toast_summary filled in."
+		throw "hotfix requires toast_summary: a plain-text description of what this hotfix fixes, at most 80 characters so the Windows toast does not ellipsize. Re-run Release Community Build with release_kind=hotfix and toast_summary filled in."
 	}
 	if (-not [string]::IsNullOrWhiteSpace($text) -and $text.Length -gt $script:NvmToastSummaryMaxChars) {
-		throw ("toast_summary is {0} characters; max is 80 so the Windows Hotfixes toast does not ellipsize." -f $text.Length)
+		throw ("toast_summary is {0} characters; max is 80 so the Windows toast does not ellipsize." -f $text.Length)
 	}
 	return $text
 }
