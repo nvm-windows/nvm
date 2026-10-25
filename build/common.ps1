@@ -216,6 +216,39 @@ function Resolve-NvmReleaseVersion {
 	return "{0}-{1}.{2}" -f $series, $kind, $number
 }
 
+# Max chars for workflow_dispatch toast_summary. Windows toast body is one unwrapped line.
+$script:NvmToastSummaryMaxChars = 80
+
+function Test-NvmHotfixVersion {
+	param([string]$Version)
+	return [bool]($Version -match '(?i)^\d+\.\d+\.\d+-hotfix(\.|$)')
+}
+
+function Resolve-NvmToastSummary {
+	param(
+		[string]$Summary = "",
+		[switch]$Required
+	)
+	$text = if ($null -eq $Summary) { "" } else { $Summary.Trim() }
+	$text = [regex]::Replace($text, '\s+', ' ').Trim()
+	if ($Required -and [string]::IsNullOrWhiteSpace($text)) {
+		throw "hotfix requires toast_summary: a plain-text description of what this hotfix fixes, at most 80 characters so the Windows Hotfixes toast does not ellipsize. Re-run Release Community Build with release_kind=hotfix and toast_summary filled in."
+	}
+	if (-not [string]::IsNullOrWhiteSpace($text) -and $text.Length -gt $script:NvmToastSummaryMaxChars) {
+		throw ("toast_summary is {0} characters; max is 80 so the Windows Hotfixes toast does not ellipsize." -f $text.Length)
+	}
+	return $text
+}
+
+function Get-NvmToastSummaryNotesSection {
+	param([string]$Summary = "")
+	$text = Resolve-NvmToastSummary -Summary $Summary
+	if ([string]::IsNullOrWhiteSpace($text)) {
+		return ""
+	}
+	return ("## Summary`n`n{0}" -f $text)
+}
+
 function Resolve-NvmHotfixVersion {
 	param(
 		[Parameter(Mandatory = $true)]
