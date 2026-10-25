@@ -44,7 +44,7 @@ on:
         default: ""
         type: string
       toast_summary:
-        description: "Hotfix toast body (plain text, max 80 characters). Required for hotfix. Shown in the Windows Hotfixes notification."
+        description: "Toast body (plain text, max 80 characters). Required for hotfix. Optional for General/alpha/beta/rc. With a summary the toast title is vX.X.X now Available."
         required: false
         default: ""
         type: string
