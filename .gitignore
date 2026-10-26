@@ -42,3 +42,6 @@ bin/nvm/*
 !.gitattributes
 !.github
 tests
+
+# Local Netlify folder
+.netlify
