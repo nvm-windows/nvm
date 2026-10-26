@@ -92,16 +92,16 @@
 
   /* ---------- store ---------- */
   const PRODUCTS = [
-    { name: 'Choco Bites 200g', price: 890, icon: '🍫', tag: 'snack' },
-    { name: 'Energy Boost 250ml', price: 590, icon: '🥤', tag: 'drink' },
-    { name: 'Salted Peanuts 150g', price: 450, icon: '🥜', tag: 'snack' },
-    { name: 'Wireless Earbuds', price: 4990, icon: '🎧' },
-    { name: 'Powerbank 10 000mAh', price: 6490, icon: '🔋' },
-    { name: 'USB-C Cable 1m', price: 1190, icon: '🔌' },
-    { name: 'Desk Lamp Pro', price: 3990, icon: '💡' },
-    { name: 'Smart Bottle 500ml', price: 2790, icon: '🧴' },
-    { name: 'Gift Card 5 000', price: 5000, icon: '🎁', tag: 'digital' },
-    { name: 'Phone Stand', price: 1490, icon: '📱' },
+    { name: 'Choco Bites 200g', price: 890, img: '/images/IMG_1049.webp', tag: 'snack' },
+    { name: 'Energy Boost 250ml', price: 590, img: '/images/IMG_1050.webp', tag: 'drink' },
+    { name: 'Salted Peanuts 150g', price: 450, img: '/images/IMG_1056.webp', tag: 'snack' },
+    { name: 'Wireless Earbuds', price: 4990, img: '/images/IMG_1057.webp' },
+    { name: 'Powerbank 10 000mAh', price: 6490, img: '/images/IMG_1049.webp' },
+    { name: 'USB-C Cable 1m', price: 1190, img: '/images/IMG_1050.webp' },
+    { name: 'Desk Lamp Pro', price: 3990, img: '/images/IMG_1056.webp' },
+    { name: 'Smart Bottle 500ml', price: 2790, img: '/images/IMG_1057.webp' },
+    { name: 'Gift Card 5 000', price: 5000, img: '/images/IMG_1049.webp', tag: 'digital' },
+    { name: 'Phone Stand', price: 1490, img: '/images/IMG_1050.webp' },
   ];
 
   const CITIES = ['Budaörs', 'Budapest', 'Debrecen', 'Tatabánya'];
@@ -158,7 +158,7 @@
       div.innerHTML = `
         <div class="product-art">
           ${sale ? `<span class="product-off">-20%</span>` : ''}
-          <span>${p.icon}</span>
+          <img src="${p.img}" alt="${p.name}" loading="lazy">
         </div>
         <div class="product-body">
           <span class="product-name">${p.name}</span>
@@ -177,7 +177,7 @@
 
   /* ---------- basket ---------- */
   function addToCart(product, price) {
-    state.cart.push({ name: product.name, icon: product.icon, price });
+    state.cart.push({ name: product.name, img: product.img, price });
     store.set('cart', state.cart);
     renderBasket();
     toast('Added to basket ✓');
@@ -196,7 +196,7 @@
       const div = document.createElement('div');
       div.className = 'basket-item';
       div.innerHTML = `
-        <span class="bi-icon">${item.icon}</span>
+        <span class="bi-icon">${item.img ? `<img src="${item.img}" alt="${item.name}">` : ''}</span>
         <span class="bi-name">${item.name}</span>
         <span class="bi-price">${fmt(item.price)}</span>
         <button class="rm" aria-label="Remove">×</button>`;

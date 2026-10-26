@@ -114,7 +114,8 @@ body {
   background: var(--bg-deep); border: 1px solid var(--line); border-radius: 12px;
   overflow: hidden; display: flex; flex-direction: column;
 }
-.product-art { height: 92px; display: grid; place-items: center; font-size: 34px; background: var(--card-2); position: relative; }
+.product-art { height: 140px; display: grid; place-items: center; font-size: 34px; background: var(--card-2); position: relative; overflow: hidden; }
+.product-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .product-off {
   position: absolute; top: 8px; left: 8px; background: var(--red); color: #fff;
   font: 700 10px "Outfit"; padding: 2px 7px; border-radius: 999px;
@@ -283,7 +284,8 @@ body {
 .basket-card h2 { font: 700 16px "Outfit"; margin-bottom: 14px; }
 .basket-items { display: flex; flex-direction: column; gap: 10px; }
 .basket-item { display: flex; align-items: center; gap: 10px; background: var(--bg-deep); border-radius: 10px; padding: 10px 12px; }
-.basket-item .bi-icon { font-size: 22px; }
+.basket-item .bi-icon { font-size: 22px; width: 40px; height: 40px; border-radius: 8px; overflow: hidden; flex-shrink: 0; display: grid; place-items: center; background: var(--card-2); }
+.basket-item .bi-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .basket-item .bi-name { flex: 1; font: 500 13px "Outfit"; }
 .basket-item .bi-price { font: 700 13px "Outfit"; }
 .basket-item .rm {
