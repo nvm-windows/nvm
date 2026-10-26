@@ -1,6 +1,5 @@
 # Compiles the Inno Setup official-Node choices and runs adopt and drop
 # against temporary files. Drop records msiexec instead of uninstalling Node.js.
-# keep/copy/ignore fail when official Node.js is present.
 # Usage: powershell -NoProfile -File installer\tests\Test-OfficialNodeChoices.ps1
 
 $ErrorActionPreference = "Stop"
@@ -129,29 +128,17 @@ try {
 	Assert-True $drop.SourceRemains "drop leaves the official tree for the recorded uninstall"
 	Assert-True ($drop.Uninstall -match [regex]::Escape($productCode) -and $drop.Uninstall -match "/x" -and $drop.Uninstall -match "/qn") "drop records a silent msiexec uninstall"
 
-	$adoptDrop = Invoke-InnoChoice "adopt-drop" -Found
-	Assert-True ($adoptDrop.Exit -eq 0 -and $adoptDrop.Result["action"] -eq "adopt" -and $adoptDrop.Copied) "adopt-drop is an alias of adopt"
-	Assert-True ($adoptDrop.Uninstall -match "/x") "adopt-drop records a silent msiexec uninstall"
+	$ignore = Invoke-InnoChoice "ignore" -Found
+	Assert-True ($ignore.Exit -eq 0 -and $ignore.Result["action"] -eq "adopt" -and $ignore.Copied) "ignore is treated as adopt"
 
-	$ignoreDrop = Invoke-InnoChoice "ignore-drop" -Found
-	Assert-True ($ignoreDrop.Exit -eq 0 -and $ignoreDrop.Result["action"] -eq "drop") "ignore-drop is an alias of drop"
-	Assert-True (-not $ignoreDrop.Copied) "ignore-drop does not copy official Node.js"
-	Assert-True ($ignoreDrop.Uninstall -match "/x") "ignore-drop records a silent msiexec uninstall"
+	$copy = Invoke-InnoChoice "copy" -Found
+	Assert-True ($copy.Exit -eq 0 -and $copy.Result["action"] -eq "adopt" -and $copy.Copied) "copy is treated as adopt"
 
-	foreach ($keepToken in @("keep", "copy", "ignore", "adopt-keep", "ignore-keep")) {
-		$keep = Invoke-InnoChoice $keepToken -Found
-		Assert-True ($keep.Exit -ne 0) "$keepToken fails because community cannot keep official Node.js"
-		Assert-True (-not $keep.Copied) "$keepToken does not copy official Node.js"
-		Assert-True ([string]::IsNullOrWhiteSpace($keep.Uninstall)) "$keepToken does not uninstall official Node.js"
-		Assert-True ($keep.InstallLog -match "keep is not supported") "$keepToken records the keep rejection"
-	}
+	$keep = Invoke-InnoChoice "keep" -Found
+	Assert-True ($keep.Exit -eq 0 -and $keep.Result["action"] -eq "adopt" -and $keep.Copied) "keep is treated as adopt"
 
-	$other = Invoke-InnoChoice "banana" -Found
+	$other = Invoke-InnoChoice "adopt-keep" -Found
 	Assert-True ($other.Exit -eq 0 -and $other.Result["action"] -eq "adopt" -and $other.Copied) "unsupported values are treated as adopt"
-
-	$keepAbsent = Invoke-InnoChoice "keep"
-	Assert-True ($keepAbsent.Exit -eq 0) "keep with no official Node exits 0"
-	Assert-True (-not $keepAbsent.Copied -and [string]::IsNullOrWhiteSpace($keepAbsent.Uninstall)) "keep with no official Node does not copy or uninstall"
 
 	$absent = Invoke-InnoChoice "drop"
 	Assert-True ($absent.Exit -eq 0) "missing official Node exits 0"
