@@ -1368,9 +1368,10 @@ begin
   NormalizedLegacyHome := NormalizePath(Trim(LegacyInstallDir));
   NormalizedLegacyNodePath := NormalizePath(Trim(LegacySettingsPath));
   NormalizedCurrentHome := NormalizePath(ExpandConstant('{app}'));
-  // PATH node entry must track DataRoot (.shim lives there), not always {app}.
-  NormalizedCurrentNodePath := NormalizePath(AddBackslash(GetDataRoot('')) + '.nodejs');
-  NormalizedProgramNodePath := NormalizePath(ExpandConstant('{app}\\.nodejs'));
+  // {app} is LocalAppData\Author Software\nvm (ForceProgramRootDirectory / NVM4100).
+  // .nodejs PATH stays there. Custom InstallRoot stores Node versions only.
+  NormalizedCurrentNodePath := NormalizePath(ExpandConstant('{app}\\.nodejs'));
+  NormalizedProgramNodePath := NormalizedCurrentNodePath;
 
   RemoveLegacyHome := RemoveLegacyEntries and (NormalizedLegacyHome <> '') and
     (CompareText(NormalizedLegacyHome, NormalizedCurrentHome) <> 0);
@@ -3506,7 +3507,7 @@ begin
 
   NewPath := BuildCleanedPath(UserPath, True, True);
 
-  RegWriteStringValue(HKCU, 'Environment', 'Path', NewPath);
+  RegWriteExpandStringValue(HKCU, 'Environment', 'Path', NewPath);
   BroadcastEnvironmentChange();
 end;
 
