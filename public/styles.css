@@ -1,0 +1,333 @@
+:root {
+  --bg: #121212;
+  --bg-deep: #0a0a0a;
+  --card: #1e1e1e;
+  --card-2: #262626;
+  --line: #2e2e2e;
+  --text: #ffffff;
+  --text-dim: #999999;
+  --text-faint: #666666;
+  --accent: #f5f5a8;
+  --accent-soft: rgba(245, 245, 168, 0.14);
+  --gold: #d4a83c;
+  --blue: #2e6aff;
+  --red: #d14f4f;
+  --radius: 16px;
+  --nav-h: 64px;
+}
+
+[data-theme="midnight"] {
+  --accent: #a8c8ff;
+  --accent-soft: rgba(168, 200, 255, 0.14);
+  --gold: #7aa8ff;
+}
+[data-theme="toffee"] {
+  --accent: #f2cf9b;
+  --accent-soft: rgba(242, 207, 155, 0.14);
+  --gold: #c98a4b;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body { height: 100%; }
+body {
+  background: var(--bg-deep);
+  color: var(--text);
+  font-family: "Outfit", sans-serif;
+  overscroll-behavior: none;
+}
+
+#app { max-width: 480px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+.statusbar-pad { height: env(safe-area-inset-top, 12px); }
+
+/* ---------- top bar ---------- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.close-btn { background: none; border: none; color: var(--blue); font: 600 15px "Outfit"; cursor: pointer; padding: 6px 4px; }
+.topbar-title { text-align: center; display: flex; flex-direction: column; align-items: center; }
+.brand { font: 700 17px "Outfit"; letter-spacing: 0.3px; }
+.brand-sub { font: 400 11px "Outfit"; color: var(--text-dim); }
+.icon-btn {
+  background: var(--card); border: none; color: var(--text); width: 34px; height: 34px;
+  border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+}
+
+/* ---------- screens & cards ---------- */
+#screens { flex: 1; padding: 14px 14px calc(var(--nav-h) + 24px); }
+.screen { display: flex; flex-direction: column; gap: 14px; animation: fadeUp 0.28s ease both; }
+.hidden { display: none !important; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.card-head.sub { margin-top: 14px; }
+.sec-title { font: 700 15px "Outfit"; display: flex; align-items: center; gap: 8px; }
+.sec-label { font: 600 11px "Outfit"; letter-spacing: 1.2px; color: var(--text-dim); text-transform: uppercase; }
+.sec-icon { font-size: 14px; }
+.yellow { color: var(--accent); }
+.hint { font: 400 12px "Outfit"; color: var(--text-dim); line-height: 1.45; }
+
+/* ---------- sale ---------- */
+.sale-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sale-city { font: 700 16px "Outfit"; }
+.badge {
+  background: var(--accent); color: #111; font: 800 13px "Outfit";
+  padding: 3px 12px; border-radius: 999px;
+}
+.countdown { font: 600 14px "JetBrains Mono"; color: var(--text); margin-bottom: 10px; }
+.progress { height: 6px; background: var(--card-2); border-radius: 999px; overflow: hidden; }
+.progress-fill { height: 100%; width: 42%; background: var(--accent); border-radius: 999px; transition: width 1s linear; }
+
+/* ---------- city list ---------- */
+.city-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.city {
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px; cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.city:hover { border-color: var(--gold); }
+.city .city-top { display: flex; align-items: center; justify-content: space-between; }
+.city-name { font: 700 14px "Outfit"; display: flex; align-items: center; gap: 8px; }
+.city .available { font: 400 11px "Outfit"; color: var(--text-dim); }
+.city-tabs { display: flex; gap: 8px; }
+.city-tab {
+  flex: 1; text-align: center; font: 600 12px "Outfit"; padding: 8px 0;
+  border-radius: 999px; background: var(--card-2); color: var(--text-dim);
+  border: none; cursor: pointer;
+}
+.city-tab.selected { background: var(--accent); color: #111; }
+.city-arrow { color: var(--text-dim); }
+
+/* ---------- products ---------- */
+.product-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.product {
+  background: var(--bg-deep); border: 1px solid var(--line); border-radius: 12px;
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.product-art { height: 92px; display: grid; place-items: center; font-size: 34px; background: var(--card-2); position: relative; }
+.product-off {
+  position: absolute; top: 8px; left: 8px; background: var(--red); color: #fff;
+  font: 700 10px "Outfit"; padding: 2px 7px; border-radius: 999px;
+}
+.product-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.product-name { font: 600 13px "Outfit"; line-height: 1.3; }
+.product-price { font: 700 14px "Outfit"; }
+.product-price s { color: var(--text-faint); font-weight: 400; margin-left: 6px; font-size: 12px; }
+.add-btn {
+  margin-top: auto; background: var(--accent); color: #111; border: none;
+  font: 700 12px "Outfit"; padding: 8px 0; border-radius: 999px; cursor: pointer;
+  transition: transform 0.12s;
+}
+.add-btn:active { transform: scale(0.94); }
+
+/* ---------- wallet ---------- */
+.addr-row { display: flex; align-items: center; gap: 8px; background: var(--bg-deep); border-radius: 10px; padding: 10px 12px; }
+.addr { flex: 1; font: 400 11px "JetBrains Mono"; color: #ddd; word-break: break-all; }
+.copy-btn {
+  background: var(--card-2); border: none; color: var(--text-dim); width: 30px; height: 30px;
+  border-radius: 8px; cursor: pointer; flex-shrink: 0; display: grid; place-items: center; font-size: 14px;
+}
+.copy-btn:active { color: var(--accent); }
+
+.refresh-btn {
+  background: var(--accent); color: #111; border: none; font: 700 12px "Outfit";
+  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+}
+.price-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+.price-box { background: var(--bg-deep); border-radius: 12px; padding: 12px; }
+.price-label { font: 600 10px "Outfit"; letter-spacing: 1px; color: var(--text-dim); display: block; margin-bottom: 4px; }
+.price-val { font: 700 17px "Outfit"; }
+
+.empty { text-align: center; padding: 22px 0 10px; color: var(--text-faint); }
+.empty-icon { font-size: 30px; margin-bottom: 8px; }
+.empty-icon.big { font-size: 44px; }
+.empty p { font: 400 13px "Outfit"; }
+
+.deposit-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.deposit-item { display: flex; justify-content: space-between; background: var(--bg-deep); padding: 10px 12px; border-radius: 10px; font: 400 12px "Outfit"; }
+.deposit-item .amt { color: var(--accent); font-weight: 700; }
+
+.conv-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.conv-field label { font: 600 10px "Outfit"; letter-spacing: 1px; color: var(--text-faint); }
+.conv-field input {
+  width: 100%; margin-top: 6px; background: var(--bg-deep); border: 1px solid var(--line);
+  color: var(--text); border-radius: 10px; padding: 10px 12px; font: 500 14px "JetBrains Mono";
+  outline: none;
+}
+.conv-field input:focus { border-color: var(--gold); }
+
+.balance-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.balance-label { font: 600 11px "Outfit"; letter-spacing: 1.2px; color: var(--text-dim); }
+.balance-val { font: 700 18px "Outfit"; }
+
+/* ---------- buttons ---------- */
+.btn {
+  background: var(--card-2); color: var(--text); border: none; font: 700 13px "Outfit";
+  padding: 12px 16px; border-radius: 999px; cursor: pointer; transition: transform 0.12s;
+}
+.btn:active { transform: scale(0.96); }
+.btn.primary { background: var(--accent); color: #111; }
+.btn.big { width: 100%; padding: 14px; font-size: 14px; letter-spacing: 0.5px; }
+
+/* ---------- plinko ---------- */
+.plinko-wrap { display: grid; place-items: center; background: var(--bg-deep); border-radius: 12px; padding: 8px 0; }
+#plinko { width: 100%; max-width: 340px; height: auto; }
+.bet-row { display: flex; align-items: center; gap: 12px; justify-content: center; margin: 14px 0 8px; }
+.bet-val { font: 700 20px "Outfit"; min-width: 90px; text-align: center; }
+.round-btn {
+  width: 36px; height: 36px; border-radius: 50%; background: var(--card-2); border: none;
+  color: var(--text); font: 700 18px "Outfit"; cursor: pointer;
+}
+.quick-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 14px; }
+.pill {
+  background: var(--card-2); border: none; color: var(--text); font: 600 12px "Outfit";
+  padding: 8px 18px; border-radius: 999px; cursor: pointer;
+}
+.drop-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.drop-field {
+  border-radius: 12px; padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  cursor: pointer;
+}
+.drop-field.yellow { background: var(--accent); color: #111; }
+.drop-field.gold { background: var(--gold); color: #111; }
+.drop-label { font: 600 10px "Outfit"; letter-spacing: 1.2px; opacity: 0.75; }
+.drop-field span:last-child { font: 700 16px "Outfit"; }
+
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; font: 500 13px "Outfit"; }
+.set-row input[type="number"] {
+  width: 80px; background: var(--bg-deep); border: 1px solid var(--line); color: var(--text);
+  border-radius: 10px; padding: 8px 10px; font: 500 13px "Outfit"; outline: none;
+}
+.set-link { font-weight: 700; text-decoration: none; cursor: pointer; }
+.toggle-row span { color: var(--text-dim); }
+
+.switch { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; inset: 0; background: var(--card-2); border-radius: 999px; cursor: pointer; transition: 0.2s;
+}
+.slider:before {
+  content: ""; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px;
+  background: var(--text-dim); border-radius: 50%; transition: 0.2s;
+}
+.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider:before { transform: translateX(20px); background: #111; }
+
+/* ---------- news ---------- */
+.news-list { display: flex; flex-direction: column; gap: 12px; }
+.news-item h3 { font: 700 14px "Outfit"; margin-bottom: 4px; }
+.news-item time { font: 400 11px "Outfit"; color: var(--text-faint); }
+.news-item p { font: 400 13px "Outfit"; color: var(--text-dim); margin-top: 6px; line-height: 1.5; }
+
+/* ---------- support ---------- */
+.faq-link { display: inline-block; margin-top: 10px; color: var(--accent); font: 600 13px "Outfit"; text-decoration: none; }
+.faq-list { display: flex; flex-direction: column; gap: 8px; }
+.faq-item { background: var(--bg-deep); border-radius: 10px; overflow: hidden; }
+.faq-q {
+  width: 100%; background: none; border: none; color: var(--text); font: 600 13px "Outfit";
+  padding: 12px 14px; text-align: left; cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+}
+.faq-q:after { content: "▾"; color: var(--text-dim); transition: transform 0.2s; }
+.faq-item.open .faq-q:after { transform: rotate(180deg); }
+.faq-a { max-height: 0; overflow: hidden; transition: max-height 0.25s ease; }
+.faq-a p { padding: 0 14px 12px; font: 400 12px "Outfit"; color: var(--text-dim); line-height: 1.5; }
+.faq-item.open .faq-a { max-height: 200px; }
+
+/* ---------- profile ---------- */
+.profile-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.avatar {
+  width: 56px; height: 56px; border-radius: 50%; background: var(--accent-soft);
+  display: grid; place-items: center; font: 700 20px "Outfit"; color: var(--accent);
+  border: 2px solid var(--accent);
+}
+.profile-info h2 { font: 700 16px "Outfit"; }
+.chip-row { display: flex; gap: 6px; margin-top: 6px; }
+.chip { background: var(--card-2); font: 600 11px "Outfit"; padding: 4px 10px; border-radius: 999px; color: var(--text-dim); }
+.chip.on { color: var(--accent); background: var(--accent-soft); }
+.detail { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.detail-label { font: 600 10px "Outfit"; letter-spacing: 1px; color: var(--text-faint); width: 90px; flex-shrink: 0; }
+.detail-val { flex: 1; font: 400 13px "Outfit"; word-break: break-all; }
+
+.tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.tab {
+  flex: 1; min-width: 80px; background: var(--card-2); border: none; color: var(--text-dim);
+  font: 600 12px "Outfit"; padding: 9px 6px; border-radius: 999px; cursor: pointer;
+}
+.tab.active { background: var(--gold); color: #111; }
+.tab-panel { animation: fadeUp 0.25s ease both; }
+.vip-row { display: flex; justify-content: space-between; padding: 10px 0 4px; font: 500 13px "Outfit"; }
+.vip-row + .progress { margin-bottom: 10px; }
+.perks { display: flex; flex-wrap: wrap; gap: 8px; }
+.perks .chip { font-size: 12px; }
+.select {
+  width: 100%; background: var(--bg-deep); border: 1px solid var(--line); color: var(--text);
+  border-radius: 10px; padding: 10px 12px; font: 500 13px "Outfit"; outline: none;
+}
+.color-swatch { width: 42px; height: 42px; border: none; border-radius: 50%; background: none; cursor: pointer; padding: 0; }
+.hex-input {
+  flex: 1; background: var(--bg-deep); border: 1px solid var(--line); color: var(--text);
+  border-radius: 10px; padding: 10px 12px; font: 500 13px "JetBrains Mono"; outline: none;
+}
+
+/* ---------- basket ---------- */
+.basket-card h2 { font: 700 16px "Outfit"; margin-bottom: 14px; }
+.basket-items { display: flex; flex-direction: column; gap: 10px; }
+.basket-item { display: flex; align-items: center; gap: 10px; background: var(--bg-deep); border-radius: 10px; padding: 10px 12px; }
+.basket-item .bi-icon { font-size: 22px; }
+.basket-item .bi-name { flex: 1; font: 500 13px "Outfit"; }
+.basket-item .bi-price { font: 700 13px "Outfit"; }
+.basket-item .rm {
+  background: none; border: none; color: var(--red); font: 700 16px "Outfit"; cursor: pointer; padding: 4px;
+}
+.basket-total { margin-top: 14px; }
+.basket-total .set-row { font: 700 14px "Outfit"; }
+
+/* ---------- bottom nav ---------- */
+.bottomnav {
+  position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 480px; height: var(--nav-h);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--line);
+  display: flex; z-index: 30;
+}
+.nav-item {
+  flex: 1; background: none; border: none; color: var(--text-faint);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font: 500 10px "Outfit"; cursor: pointer; padding: 0; position: relative;
+  transition: color 0.2s;
+}
+.nav-item.active { color: var(--accent); }
+.nav-item.active::before {
+  content: ""; position: absolute; top: 0; width: 40%; height: 2px;
+  background: var(--accent); border-radius: 999px;
+}
+
+/* ---------- effects ---------- */
+.snow { position: fixed; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
+.snowflake {
+  position: absolute; top: -12px; color: #fff; font-size: 12px; opacity: 0.8;
+  animation: fall linear infinite;
+}
+@keyframes fall {
+  to { transform: translateY(105vh) rotate(360deg); }
+}
+
+/* ---------- toast ---------- */
+.toast {
+  position: fixed; bottom: calc(var(--nav-h) + 16px); left: 50%; transform: translateX(-50%);
+  background: var(--card-2); color: var(--text); border: 1px solid var(--line);
+  font: 600 13px "Outfit"; padding: 10px 18px; border-radius: 999px; z-index: 50;
+  animation: toastIn 0.2s ease both;
+}
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }

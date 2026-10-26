@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#121212">
+<title>SkyHighShop — mini app</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="app">
+  <div class="statusbar-pad"></div>
+  <header class="topbar">
+    <button id="closeBtn" class="close-btn" aria-label="Bezárás">Bezárás</button>
+    <div class="topbar-title">
+      <span class="brand">SkyHighShop</span>
+      <span class="brand-sub">mini app</span>
+    </div>
+    <button id="menuBtn" class="icon-btn" aria-label="Menü">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+    </button>
+  </header>
+
+  <main id="screens">
+    <!-- STORE -->
+    <section class="screen" id="screen-store">
+      <div class="card sale-card">
+        <div class="card-head">
+          <span class="sec-title"><span class="sec-icon yellow">🏷</span>FLASH SALE</span>
+        </div>
+        <div class="sale-row">
+          <span id="saleCity" class="sale-city">All cities</span>
+          <span class="badge">20%</span>
+        </div>
+        <div class="countdown" id="countdown">0d 0h 0m 0s</div>
+        <div class="progress"><div class="progress-fill" id="saleProgress"></div></div>
+        <p class="hint">Sale applies to the selected city's store only.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2 class="sec-title">Select Location</h2>
+        </div>
+        <p class="hint">Choose a city to start.</p>
+        <div id="cityList" class="city-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2 class="sec-title">⚡ Catalog</h2>
+        </div>
+        <div id="productGrid" class="product-grid"></div>
+      </div>
+    </section>
+
+    <!-- WALLET -->
+    <section class="screen hidden" id="screen-wallet">
+      <div class="card">
+        <div class="card-head"><span class="sec-label">SOL ADDRESS</span></div>
+        <div class="addr-row">
+          <code class="addr" id="solAddress">3zZNiqGxXdupPNfEGsqRKE3x4ZFTzjTWvuVpbewFKYUH</code>
+          <button class="copy-btn" data-copy="solAddress" aria-label="Copy address">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
+        <p class="hint">Send only SOL on the Solana network. Deposits are credited automatically after 1 confirmation.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="sec-title"><span class="sec-icon yellow">🛟</span>Deposit tracker</span>
+          <button id="refreshBtn" class="refresh-btn">⟳ Refresh</button>
+        </div>
+        <p class="hint">Updated <span id="lastUpdate">—</span>. Refreshes every minute while this page is open.</p>
+        <div class="price-duo">
+          <div class="price-box">
+            <span class="price-label">SOL PRICE (HUF)</span>
+            <span class="price-val" id="solHuf">—</span>
+          </div>
+          <div class="price-box">
+            <span class="price-label">SOL PRICE (USD)</span>
+            <span class="price-val" id="solUsd">—</span>
+          </div>
+        </div>
+        <div class="card-head sub"><span class="sec-label">Recent deposits</span></div>
+        <div class="empty" id="depositEmpty">
+          <div class="empty-icon">$</div>
+          <p>No deposits yet.</p>
+        </div>
+        <div id="depositList" class="deposit-list hidden"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="sec-title">SOL to HUF Converter</span></div>
+        <div class="conv-row">
+          <div class="conv-field">
+            <label>SOL</label>
+            <input type="number" id="convSol" min="0" step="0.00000001" value="0.00">
+          </div>
+          <div class="conv-field">
+            <label>HUF</label>
+            <input type="text" id="convHuf" readonly value="0.00">
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span class="sec-title">Balance</span></div>
+        <div class="balance-row">
+          <span class="balance-label">BALANCE</span>
+          <span class="balance-val" id="walletBalance">0 Ft</span>
+        </div>
+        <button class="btn primary" id="addFundsBtn">Add funds</button>
+      </div>
+    </section>
+
+    <!-- REWARDS -->
+    <section class="screen hidden" id="screen-rewards">
+      <div class="card">
+        <div class="card-head">
+          <span class="sec-title"><span class="sec-icon yellow">👑</span>VIP Daily Reward</span>
+        </div>
+        <p class="hint" id="vipHint">VIP required to claim daily rewards.</p>
+        <div class="card-head sub"><span class="sec-label">Recent claims</span></div>
+        <div class="empty">
+          <div class="empty-icon">🎁</div>
+          <p>No claims yet.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="sec-title"><span class="sec-icon yellow">🎟</span>Raffles</span>
+        </div>
+        <div class="empty">
+          <div class="empty-icon">🏆</div>
+          <p>No active raffles.</p>
+        </div>
+      </div>
+
+      <div class="card plinko-card">
+        <div class="balance-row">
+          <span class="balance-label">BALANCE</span>
+          <span class="balance-val" id="plinkoBalance">0 Ft</span>
+        </div>
+        <div class="plinko-wrap">
+          <canvas id="plinko" width="340" height="420"></canvas>
+        </div>
+        <div class="bet-row">
+          <span class="balance-label">BET</span>
+          <button class="round-btn" id="betMinus">−</button>
+          <span class="bet-val" id="betVal">500 Ft</span>
+          <button class="round-btn" id="betPlus">+</button>
+        </div>
+        <div class="quick-row">
+          <button class="pill" data-bet="min">Min</button>
+          <span class="pill" id="betMax">750</span>
+          <button class="pill" data-bet="max">Max</button>
+        </div>
+        <div class="drop-row">
+          <div class="drop-field yellow"><span class="drop-label">ROWS</span><span id="rowsVal">10</span></div>
+          <div class="drop-field gold"><span class="drop-label">RISK</span><span id="riskVal">Medium</span></div>
+        </div>
+        <button class="btn primary big" id="dropBtn">DROP BALL</button>
+        <p class="hint" id="queuedLbl">Queued: 0</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="sec-title"><span class="sec-icon yellow">🎛</span>Drop settings</span>
+        </div>
+        <div class="set-row">
+          <label>Balls per drop</label>
+          <input type="number" id="ballsPerDrop" value="1" min="1" max="20">
+        </div>
+        <div class="set-row">
+          <label>Max active balls</label>
+          <input type="number" id="maxBalls" value="5" min="1" max="50">
+        </div>
+        <div class="set-row toggle-row">
+          <label>Allow spamming</label>
+          <label class="switch"><input type="checkbox" id="spamToggle"><span class="slider"></span></label>
+        </div>
+        <p class="hint">Demo game — balances are virtual and reset on sign-out.</p>
+      </div>
+    </section>
+
+    <!-- NEWS -->
+    <section class="screen hidden" id="screen-news">
+      <div class="card">
+        <div class="card-head"><span class="sec-title"><span class="sec-icon yellow">📰</span>News</span></div>
+        <div id="newsList" class="news-list"></div>
+      </div>
+    </section>
+
+    <!-- SUPPORT -->
+    <section class="screen hidden" id="screen-support">
+      <div class="card">
+        <div class="card-head">
+          <h2>Hi, <span id="supportUser">DzsukliSupport</span>!</h2>
+        </div>
+        <p class="hint">Use the buttons below to pick a ticket.</p>
+        <div class="quick-row">
+          <button class="btn primary" id="openTicketsBtn">Open tickets menu</button>
+          <button class="btn primary" id="newTicketBtn">+ New ticket</button>
+        </div>
+        <a class="faq-link" href="#" id="faqLink">❓ Support FAQ</a>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="sec-label">FAQ</span></div>
+        <div id="faqList" class="faq-list"></div>
+      </div>
+    </section>
+
+    <!-- PROFILE -->
+    <section class="screen hidden" id="screen-profile">
+      <div class="card profile-card">
+        <div class="profile-head">
+          <div class="avatar" id="avatar">DS</div>
+          <div class="profile-info">
+            <h2>Hi, <span id="profileName">DzsukliSupport</span>!</h2>
+            <div class="chip-row">
+              <span class="chip">User</span>
+              <span class="chip" id="xpChip">0 XP</span>
+            </div>
+          </div>
+        </div>
+        <div class="detail"><span class="detail-label">@USERNAME</span><span class="detail-val" id="detailUser">@DzsukliSupport</span><button class="copy-btn" data-copy="detailUser">⧉</button></div>
+        <div class="detail"><span class="detail-label">TELEGRAM ID</span><span class="detail-val" id="detailTg">6331949534</span><button class="copy-btn" data-copy="detailTg">⧉</button></div>
+        <div class="detail"><span class="detail-label">USER ID</span><span class="detail-val" id="detailUid">3255</span><button class="copy-btn" data-copy="detailUid">⧉</button></div>
+      </div>
+
+      <div class="card">
+        <div class="tabs" id="profileTabs">
+          <button class="tab active" data-tab="account">👤 Account</button>
+          <button class="tab" data-tab="appearance">🎨 Appearance</button>
+          <button class="tab" data-tab="vip">👑 VIP</button>
+          <button class="tab" data-tab="invites">🔗 Invites</button>
+        </div>
+        <div id="tab-account" class="tab-panel">
+          <div class="card-head"><span class="sec-title">🛡 Password &amp; sign-in</span></div>
+          <div class="set-row"><span class="set-link yellow">Set a password</span><span class="hint">No session</span></div>
+        </div>
+        <div id="tab-appearance" class="tab-panel hidden">
+          <div class="card-head"><span class="sec-label">STORE THEME (applies instantly)</span></div>
+          <div class="set-row">
+            <select id="themeSelect" class="select">
+              <option value="sky" selected>Sky High</option>
+              <option value="midnight">Midnight</option>
+              <option value="toffee">Toffee</option>
+            </select>
+          </div>
+          <div class="card-head"><span class="sec-title">✨ Effects</span></div>
+          <div class="set-row toggle-row"><span>❄️ Holiday snowfall</span><label class="switch"><input type="checkbox" id="snowToggle"><span class="slider"></span></label></div>
+          <div class="set-row toggle-row"><span>🌴 Jungle mode</span><label class="switch"><input type="checkbox" id="jungleToggle"><span class="slider"></span></label></div>
+          <div class="card-head"><span class="sec-title">🎨 Personal colors</span></div>
+          <p class="hint">Pick a color to personalize your accent. Leave empty for theme default.</p>
+          <div class="set-row">
+            <input type="color" id="accentColor" value="#f5f5a8" class="color-swatch">
+            <input type="text" id="accentHex" value="#f5f5a8" class="hex-input">
+          </div>
+          <button class="btn primary" id="saveAccent">💾 Save</button>
+        </div>
+        <div id="tab-vip" class="tab-panel hidden">
+          <div class="card-head"><span class="sec-title">VIP</span><span class="chip">Not Active</span></div>
+          <div class="vip-row"><span>🏆 One-time deposit</span><span class="hint">0 / 80 000 HUF</span></div>
+          <div class="progress"><div class="progress-fill"></div></div>
+          <div class="vip-row"><span>💰 Monthly spent</span><span class="hint">0 / 180 000 HUF</span></div>
+          <div class="progress"><div class="progress-fill"></div></div>
+          <div class="vip-row"><span>🛒 Monthly purchases</span><span class="hint">0 / 15</span></div>
+          <div class="progress"><div class="progress-fill"></div></div>
+          <div class="card-head sub"><span class="sec-title">VIP Perks</span></div>
+          <div class="perks">
+            <span class="chip">🎨 Theme changer</span>
+            <span class="chip">🎁 VIP Rewards</span>
+            <span class="chip">✨ Special offers</span>
+            <span class="chip">％ 5% discount</span>
+          </div>
+        </div>
+        <div id="tab-invites" class="tab-panel hidden">
+          <div class="card-head"><span class="sec-title">Invite friends</span></div>
+          <p class="hint">Share your link and earn 500 Ft credit per friend.</p>
+          <div class="addr-row">
+            <code class="addr" id="inviteLink">t.me/SkyHighShopBot?start=3255</code>
+            <button class="copy-btn" data-copy="inviteLink">⧉</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BASKET -->
+    <section class="screen hidden" id="screen-basket">
+      <div class="card basket-card">
+        <h2 id="basketTitle">Shopping Cart (0 items)</h2>
+        <div id="basketItems" class="basket-items"></div>
+        <div class="empty" id="basketEmpty">
+          <div class="empty-icon big">🛒</div>
+          <p>Your cart is empty</p>
+          <p class="hint">Add some stuff to get started!</p>
+        </div>
+        <div class="basket-total hidden" id="basketTotal">
+          <div class="set-row"><span>Total</span><span id="basketSum">0 Ft</span></div>
+          <button class="btn primary big" id="checkoutBtn">Checkout</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottomnav" id="bottomnav">
+    <button class="nav-item active" data-screen="store">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9h18M9 20v-6h6v6"/></svg>
+      <span>Store</span>
+    </button>
+    <button class="nav-item" data-screen="wallet">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M16 13h4M2 6l3-4h14l3 4"/></svg>
+      <span>Wallet</span>
+    </button>
+    <button class="nav-item" data-screen="rewards">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12M12 8s-1.5-4-4.5-4C5 4 5 8 12 8zm0 0s1.5-4 4.5-4C19 4 19 8 12 8z"/></svg>
+      <span>Rewards</span>
+    </button>
+    <button class="nav-item" data-screen="news">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h13v16H4zM17 8h3v12h-3M7 8h7M7 12h7M7 16h5"/></svg>
+      <span>News</span>
+    </button>
+    <button class="nav-item" data-screen="support">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8h16v12H4zM4 8l2-4h12l2 4M9 8l2 4M15 8l-2 4"/></svg>
+      <span>Support</span>
+    </button>
+    <button class="nav-item" data-screen="profile">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+      <span>Profile</span>
+    </button>
+    <button class="nav-item" data-screen="basket">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M3 4h2l3 12h10l2-8H6"/></svg>
+      <span>Basket</span>
+    </button>
+  </nav>
+
+  <div id="snow" class="snow hidden"></div>
+  <div id="toast" class="toast hidden"></div>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
