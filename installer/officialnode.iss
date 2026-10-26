@@ -1,4 +1,5 @@
 { Official Node.js adopt / drop. Included from setup.iss [Code]. }
+{ Community cannot keep official Node.js: system PATH beats the NVM user PATH. }
 { DeferOfficialNodeOnV2Upgrade is declared by the host script. A 2.0.0+ upgrade leaves official Node.js installed. }
 
 function OfficialNodeParam(): String;
@@ -6,8 +7,13 @@ var
   Raw: String;
 begin
   Raw := LowerCase(Trim(ExpandConstant('{param:OFFICIALNODE}')));
-  if (Raw = 'adopt') or (Raw = 'drop') then
-    Result := Raw
+  if (Raw = '') or (Raw = 'adopt') or (Raw = 'adopt-drop') then
+    Result := 'adopt'
+  else if (Raw = 'drop') or (Raw = 'ignore-drop') then
+    Result := 'drop'
+  else if (Raw = 'keep') or (Raw = 'copy') or (Raw = 'adopt-keep') or
+          (Raw = 'ignore') or (Raw = 'ignore-keep') then
+    Result := 'keep'
   else
     Result := 'adopt';
 end;
@@ -359,6 +365,8 @@ begin
     Result := 'adopt';
 end;
 
+procedure AbortInstallBecauseOfficialNodeKeepUnsupported(); forward;
+
 procedure CreateOfficialNodePage();
 var
   Description: String;
@@ -368,6 +376,11 @@ begin
     Exit;
   if DeferOfficialNodeOnV2Upgrade then
     Exit;
+  if OfficialNodeAction = 'keep' then
+  begin
+    AbortInstallBecauseOfficialNodeKeepUnsupported();
+    Exit;
+  end;
 
   Description :=
     OfficialNodeSummary() + #13#10 +
@@ -581,6 +594,27 @@ end;
 procedure ExitProcess(uExitCode: Cardinal);
   external 'ExitProcess@kernel32.dll stdcall';
 
+procedure AbortInstallBecauseOfficialNodeKeepUnsupported();
+var
+  MessageText: String;
+begin
+  if InstallerHardFailed then
+    Exit;
+  MessageText :=
+    'The community installer cannot keep the official Node.js installation.' + #13#10#13#10 +
+    'The system PATH Node.js directory overrides the NVM user PATH.' + #13#10#13#10 +
+    'Use /OFFICIALNODE=adopt (copy and uninstall) or /OFFICIALNODE=drop (uninstall only).' + #13#10 +
+    'To keep official Node.js, use a Certified Build with OFFICIALNODE=copy or OFFICIALNODE=keep.';
+  AppendInstallLogWarn('ApplyOfficialNodeChoice: keep is not supported on the community installer');
+  if not WizardSilent then
+  begin
+    MsgBox(MessageText, mbError, MB_OK);
+    Abort;
+  end;
+  { ssPostInstall is too late for Abort to change the process exit code. }
+  ExitProcess(1);
+end;
+
 procedure AbortInstallBecauseOfficialNodeRemains();
 var
   MessageText: String;
@@ -617,6 +651,12 @@ begin
 
   OfficialNodeAction := SelectedOfficialNodeAction();
   AppendInstallLog('ApplyOfficialNodeChoice: action=' + OfficialNodeAction + ' path=' + OfficialNodePath);
+
+  if OfficialNodeAction = 'keep' then
+  begin
+    AbortInstallBecauseOfficialNodeKeepUnsupported();
+    Exit;
+  end;
 
   if OfficialNodeAction = 'drop' then
     DropOfficialNodeInstall()
