@@ -131,6 +131,12 @@ try {
 	$ignore = Invoke-InnoChoice "ignore" -Found
 	Assert-True ($ignore.Exit -eq 0 -and $ignore.Result["action"] -eq "adopt" -and $ignore.Copied) "ignore is treated as adopt"
 
+	$copy = Invoke-InnoChoice "copy" -Found
+	Assert-True ($copy.Exit -eq 0 -and $copy.Result["action"] -eq "adopt" -and $copy.Copied) "copy is treated as adopt"
+
+	$keep = Invoke-InnoChoice "keep" -Found
+	Assert-True ($keep.Exit -eq 0 -and $keep.Result["action"] -eq "adopt" -and $keep.Copied) "keep is treated as adopt"
+
 	$other = Invoke-InnoChoice "adopt-keep" -Found
 	Assert-True ($other.Exit -eq 0 -and $other.Result["action"] -eq "adopt" -and $other.Copied) "unsupported values are treated as adopt"
 

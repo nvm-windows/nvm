@@ -1,4 +1,5 @@
 { Official Node.js adopt / drop. Included from setup.iss [Code]. }
+{ Community accepts only adopt and drop. copy/keep are Certified-only. }
 { DeferOfficialNodeOnV2Upgrade is declared by the host script. A 2.0.0+ upgrade leaves official Node.js installed. }
 
 function OfficialNodeParam(): String;
