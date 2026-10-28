@@ -296,6 +296,29 @@ function SendMessageTimeoutW(hWnd: HWND; Msg: UINT; wParam: UINT; lParam: String
   fuFlags: UINT; uTimeout: UINT; var lpdwResult: DWORD): DWORD;
   external 'SendMessageTimeoutW@user32.dll stdcall';
 
+function SHGetFolderPathW(hwnd: HWND; csidl: Integer; hToken: THandle; dwFlags: DWORD; pszPath: String): Integer;
+  external 'SHGetFolderPathW@shell32.dll stdcall';
+
+function GetKnownFolderPath(Csidl: Integer; const Fallback: String): String;
+var
+  Buf: String;
+  Nul: Integer;
+begin
+  SetLength(Buf, 260);
+  if SHGetFolderPathW(0, Csidl, 0, 0, Buf) = 0 then
+  begin
+    Nul := Pos(#0, Buf);
+    if Nul > 1 then
+      Result := Copy(Buf, 1, Nul - 1)
+    else
+      Result := Trim(Buf);
+  end
+  else
+    Result := Fallback;
+  if Result = '' then
+    Result := Fallback;
+end;
+
 // Inno's localappdata constant uses the shell-folder API. A mapped A: drive
 // can make that return A:\Users\... instead of the real profile. LOCALAPPDATA does not.
 function GetRealLocalAppData(Param: String): String;
@@ -1104,9 +1127,13 @@ begin
   AppendProtectedPath(Exact, ExpandConstant('{userappdata}'));
   AppendProtectedPath(Exact, ExpandConstant('{userdesktop}'));
   AppendProtectedPath(Exact, ExpandConstant('{userdocs}'));
-  AppendProtectedPath(Exact, ExpandConstant('{userpics}'));
-  AppendProtectedPath(Exact, ExpandConstant('{usermusic}'));
-  AppendProtectedPath(Exact, ExpandConstant('{uservideos}'));
+  // Inno has no userpics/usermusic/uservideos constants.
+  AppendProtectedPath(Exact, GetKnownFolderPath($0027, Profile + '\Pictures'));
+  AppendProtectedPath(Exact, GetKnownFolderPath($000D, Profile + '\Music'));
+  AppendProtectedPath(Exact, GetKnownFolderPath($000E, Profile + '\Videos'));
+  AppendProtectedPath(Exact, Profile + '\Pictures');
+  AppendProtectedPath(Exact, Profile + '\Music');
+  AppendProtectedPath(Exact, Profile + '\Videos');
   AppendProtectedPath(Exact, Profile + '\Downloads');
   AppendProtectedPath(Exact, ExpandConstant('{commondesktop}'));
   AppendProtectedPath(Exact, ExpandConstant('{commondocs}'));
