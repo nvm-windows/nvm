@@ -1930,12 +1930,27 @@ begin
   end;
 end;
 
+function CertifiedNvmExePresent(): Boolean;
+begin
+  { Program Files Certified MSI leaves nvm.exe here. Community uninstall must not
+    delete shared Node installs or Windows Apps ARP entries while that binary remains. }
+  Result :=
+    FileExists(ExpandConstant('{commonpf}\Author Software\nvm\nvm.exe')) or
+    FileExists(ExpandConstant('{pf32}\Author Software\nvm\nvm.exe'));
+end;
+
 function ConfirmUninstallRemoveNodeVersions(const InstallRoot: String): Boolean;
 var
   VersionCount: Integer;
   MessageText: String;
   RootDisplay: String;
 begin
+  if CertifiedNvmExePresent() then
+  begin
+    Result := True;
+    Exit;
+  end;
+
   RootDisplay := Trim(InstallRoot);
   if RootDisplay = '' then
     RootDisplay := GetInstallRootForUninstall('');
@@ -5424,25 +5439,38 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  KeepSharedNodeArtifacts: Boolean;
 begin
   if CurUninstallStep = usUninstall then
   begin
     UninstallAppRoot := ExpandConstant('{app}');
     UninstallInstallRoot := GetInstallRootForUninstall('');
+    KeepSharedNodeArtifacts := CertifiedNvmExePresent();
     UnregisterSparseIdentityPackage();
     ForceCloseNvmProcessesOnUninstall();
-    CleanupInstallRootOnUninstall();
+    if KeepSharedNodeArtifacts then
+      Log('Keeping Node install root and Windows Apps entries; Certified nvm.exe still present')
+    else
+      CleanupInstallRootOnUninstall();
     RemoveSyncTaskOnUninstall();
-    RemoveAllNodeVersionsWindowsAppsEntries();
+    if not KeepSharedNodeArtifacts then
+      RemoveAllNodeVersionsWindowsAppsEntries();
     ClearMachineLicensingOnUninstall();
   end;
 
   if CurUninstallStep = usPostUninstall then
   begin
     CleanupSettingsRegistryOnUninstall();
-    CleanupInstallRootOnUninstall();
+    if not CertifiedNvmExePresent() then
+      CleanupInstallRootOnUninstall();
   end;
 
   if CurUninstallStep = usDone then
-    CleanupAppRootOnUninstall();
+  begin
+    if CertifiedNvmExePresent() then
+      Log('Keeping LocalAppData app root; Certified nvm.exe still present')
+    else
+      CleanupAppRootOnUninstall();
+  end;
 end;
