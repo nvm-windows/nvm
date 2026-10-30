@@ -700,22 +700,12 @@ begin
     Result := Trim(NodeStoragePage.Values[0]);
 end;
 
-// DataRoot is the parent of InstallRoot (.shim / .nodejs / .cache live here).
-// Default InstallRoot={app}\installs keeps DataRoot={app}. Custom storage splits them.
+// DataRoot is the program root ({app}). Runtime dirs (.shim / .nodejs / .cache /
+// .sync / .verify / proxy.exe) always live here — never parent(InstallRoot).
+// Custom InstallRoot may be D:\nvm; deriving DataRoot from that spilled dirs onto D:\.
 function GetDataRoot(Param: String): String;
-var
-  InstallRoot: String;
 begin
-  InstallRoot := NormalizePath(GetInstallRoot(''));
-  if InstallRoot = '' then
-  begin
-    Result := ExpandConstant('{app}');
-    Exit;
-  end;
-
-  Result := NormalizePath(ExtractFileDir(InstallRoot));
-  if Result = '' then
-    Result := ExpandConstant('{app}');
+  Result := ExpandConstant('{app}');
 end;
 
 function GetLegacySettingValue(const SettingsText: String; const Key: String): String;
@@ -1223,10 +1213,8 @@ end;
 
 function UninstallScanDataRoot(const AppRoot, InstallRoot: String): String;
 begin
+  { Runtime dirs always live under the program root (AppRoot), not parent(InstallRoot). }
   Result := AppRoot;
-  if (InstallRoot = '') or IsDisallowedNodeStorage(InstallRoot) then
-    Exit;
-  Result := RemoveBackslashUnlessRoot(ExtractFileDir(InstallRoot));
   if Result = '' then
     Result := InstallRoot;
 end;
@@ -3553,8 +3541,8 @@ begin
   BroadcastEnvironmentChange();
 end;
 
-// When InstallRoot is customized, DataRoot leaves {app}. Seed runtime .shim + proxy
-// so PATH/.nodejs match where nvm use / reshim write shims (closes #1388).
+// DataRoot is always {app}. When InstallRoot is customized on another volume,
+// still keep .shim / proxy / .nodejs under the program root (closes #1388 / #1516).
 procedure EnsureDataRootRuntimeLayout();
 var
   DataRoot: String;
