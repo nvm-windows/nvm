@@ -336,7 +336,7 @@ function Format-NvmReleaseCommitLine {
 		$subject = "commit"
 	}
 	$author = [string]$Commit.commit.author.name
-	if ([string]::IsNullOrWhiteSpace($author)) {
+	if ([string]::IsNullOrWhiteSpace($author) -and $null -ne $Commit.author) {
 		$author = [string]$Commit.author.login
 	}
 	if ([string]::IsNullOrWhiteSpace($author)) {
@@ -518,6 +518,9 @@ function Get-NvmReleaseContributorLogins {
 		}
 		$commits = Get-NvmCompareCommits -Repository $section.Repository -BaseRef $section.Base -HeadRef $section.Head
 		foreach ($commit in $commits) {
+			if ($null -eq $commit.author) {
+				continue
+			}
 			$login = [string]$commit.author.login
 			if ([string]::IsNullOrWhiteSpace($login)) {
 				continue
@@ -554,6 +557,9 @@ function Get-NvmReleaseNewContributorsSection {
 		}
 		$commits = Get-NvmCompareCommits -Repository $section.Repository -BaseRef $section.Base -HeadRef $section.Head
 		foreach ($commit in $commits) {
+			if ($null -eq $commit.author) {
+				continue
+			}
 			$login = [string]$commit.author.login
 			if ([string]::IsNullOrWhiteSpace($login)) {
 				continue
