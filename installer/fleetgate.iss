@@ -231,6 +231,14 @@ begin
   FreeConsole();
 end;
 
+{ In-app / notification upgrades launch setup /VERYSILENT from a detached
+  PowerShell host with no Store/WinGet ancestor and no visible console.
+  /NVMSELFUPGRADE=1 marks that path. SYSTEM and fleet-host ancestors still abort. }
+function IsSelfUpgradeRequest(): Boolean;
+begin
+  Result := CompareText(Trim(ExpandConstant('{param:NVMSELFUPGRADE|}')), '1') = 0;
+end;
+
 function PassesFleetInstallGate(): Boolean;
 var
   Depth: Integer;
@@ -241,6 +249,7 @@ var
   UserControlled: Boolean;
   ClickHost: Boolean;
   ConsoleOk: Boolean;
+  SelfUpgrade: Boolean;
   Seen: String;
 begin
   Result := True;
@@ -251,6 +260,7 @@ begin
     Exit;
   end;
 
+  SelfUpgrade := IsSelfUpgradeRequest();
   UserControlled := False;
   ClickHost := False;
   ConsoleOk := False;
@@ -289,7 +299,7 @@ begin
     CurrentPid := ParentPid;
   end;
 
-  if WizardSilent and IntuneAgentExecutorRunning() and (not ClickHost) and (not ConsoleOk) then
+  if WizardSilent and IntuneAgentExecutorRunning() and (not ClickHost) and (not ConsoleOk) and (not SelfUpgrade) then
   begin
     AbortFleetSetup('AgentExecutor-peer');
     Result := False;
@@ -299,7 +309,7 @@ begin
   if not WizardSilent then
     Exit;
 
-  if UserControlled or ConsoleOk then
+  if UserControlled or ConsoleOk or SelfUpgrade then
     Exit;
 
   AbortFleetSetup('silent-no-console');
