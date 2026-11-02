@@ -1156,12 +1156,85 @@ begin
     'Disallowed locations include:' + #13#10 +
     '- Windows, System32, WinSxS, Program Files, Program Files (x86), ProgramData, WindowsApps, Recycle Bin' + #13#10 +
     '- Drive roots (C:\)' + #13#10 +
+    '- Folders directly under a drive root (D:\tools) — use D:\tools\nvm\installs so runtime files are not on the drive root' + #13#10 +
+    '- Existing folders that already contain non-NVM content (other apps would be deleted on uninstall)' + #13#10 +
     '- Your user profile, AppData, Desktop, Documents, Downloads, Pictures, Videos, Music' + #13#10 +
     '- Start Menu, Startup, LocalAppData\Programs, LocalAppData\Microsoft' + #13#10 +
     '- The NVM program folder, .shim, .nodejs, and utils' + #13#10 +
     '- Any parent of those folders (for example C:\Users)' + #13#10 + #13#10 +
     'Use a dedicated directory. Default: %LOCALAPPDATA%\Author Software\nvm\installs' + #13#10 + #13#10 +
     'Event code: NVM4313';
+end;
+
+function IsDriveRootPath(const PathValue: String): Boolean;
+var
+  PathNorm: String;
+  Drive: String;
+begin
+  PathNorm := NormalizePath(PathValue);
+  Result := False;
+  if PathNorm = '' then
+    Exit;
+  Drive := ExtractFileDrive(PathNorm);
+  if Drive = '' then
+    Exit;
+  Result := CompareText(RemoveBackslashUnlessRoot(PathNorm), RemoveBackslashUnlessRoot(Drive)) = 0;
+end;
+
+function IsManagedNodeVersionDirName(const Name: String): Boolean;
+var
+  Rest: String;
+  I: Integer;
+  Digits: Boolean;
+begin
+  Result := False;
+  if (Length(Name) < 2) or ((Name[1] <> 'v') and (Name[1] <> 'V')) then
+    Exit;
+  Rest := Copy(Name, 2, MaxInt);
+  Digits := False;
+  for I := 1 to Length(Rest) do
+  begin
+    case Rest[I] of
+      '0'..'9':
+        Digits := True;
+      '.', '-', '_', 'a'..'z', 'A'..'Z':
+        if not Digits then
+          Exit;
+    else
+      Exit;
+    end;
+  end;
+  Result := Digits;
+end;
+
+function InstallRootHasForeignContent(const PathValue: String): Boolean;
+var
+  PathNorm: String;
+  FindRec: TFindRec;
+begin
+  Result := False;
+  PathNorm := NormalizePath(PathValue);
+  if (PathNorm = '') or (not DirExists(PathNorm)) then
+    Exit;
+  if FindFirst(AddBackslash(PathNorm) + '*', FindRec) then
+  try
+    repeat
+      if (FindRec.Name = '.') or (FindRec.Name = '..') then
+        Continue;
+      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
+      begin
+        Result := True;
+        Exit;
+      end;
+      if not IsManagedNodeVersionDirName(FindRec.Name) then
+      begin
+        Result := True;
+        Exit;
+      end;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
 end;
 
 function IsDisallowedNodeStorage(const PathValue: String): Boolean;
@@ -1171,6 +1244,7 @@ var
   Exact: TArrayOfString;
   I: Integer;
   Drive: String;
+  Parent: String;
 begin
   Result := True;
   PathNorm := NormalizePath(PathValue);
@@ -1181,6 +1255,17 @@ begin
     Exit;
 
   if (Length(PathNorm) = 2) and (PathNorm[2] = ':') then
+    Exit;
+
+  if IsDriveRootPath(PathNorm) then
+    Exit;
+
+  { Parent is drive root → DataRoot would be D:\ (.shim next to every folder on the drive). }
+  Parent := NormalizePath(ExtractFileDir(PathNorm));
+  if (Parent <> '') and IsDriveRootPath(Parent) then
+    Exit;
+
+  if InstallRootHasForeignContent(PathNorm) then
     Exit;
 
   CollectInstallRootProtect(Subtree, Exact);
@@ -5218,9 +5303,37 @@ begin
   Result := Trim(Result);
 end;
 
+procedure RemoveManagedVersionDirsOnly(const RootDir: String);
+var
+  FindRec: TFindRec;
+  Child: String;
+begin
+  if (RootDir = '') or (not DirExists(RootDir)) then
+    Exit;
+  if FindFirst(AddBackslash(RootDir) + '*', FindRec) then
+  try
+    repeat
+      if (FindRec.Name = '.') or (FindRec.Name = '..') then
+        Continue;
+      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
+        Continue;
+      if not IsManagedNodeVersionDirName(FindRec.Name) then
+        Continue;
+      Child := AddBackslash(RootDir) + FindRec.Name;
+      if DelTree(Child, True, True, True) then
+        Log('Removed managed Node version directory: ' + Child)
+      else
+        Log('Failed to remove managed Node version directory: ' + Child);
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
 procedure CleanupInstallRootOnUninstall();
 var
   RootToRemove: String;
+  UnsafeOrShared: Boolean;
 begin
   RootToRemove := Trim(UninstallInstallRoot);
   if RootToRemove = '' then
@@ -5232,9 +5345,27 @@ begin
   if not DirExists(RootToRemove) then
     Exit;
 
-  if (not IsSafeRemovableDirectory(RootToRemove)) or IsDisallowedNodeStorage(RootToRemove) then
+  { Never DelTree a drive-root child or a folder that holds non-NVM apps (Git, IDEs, …).
+    Only remove managed v* version trees in those cases. }
+  UnsafeOrShared :=
+    (not IsSafeRemovableDirectory(RootToRemove)) or
+    IsDriveRootPath(RootToRemove) or
+    IsDriveRootPath(NormalizePath(ExtractFileDir(NormalizePath(RootToRemove)))) or
+    InstallRootHasForeignContent(RootToRemove);
+
+  if UnsafeOrShared then
+  begin
+    Log('Install root is shared or unsafe for full delete; removing managed version dirs only: ' + RootToRemove);
+    ForceCloseNvmProcessesOnUninstall();
+    RemoveManagedVersionDirsOnly(RootToRemove);
+    Exit;
+  end;
+
+  if IsDisallowedNodeStorage(RootToRemove) then
   begin
     Log('Skipping install root removal due to safety check: ' + RootToRemove);
+    ForceCloseNvmProcessesOnUninstall();
+    RemoveManagedVersionDirsOnly(RootToRemove);
     Exit;
   end;
 
