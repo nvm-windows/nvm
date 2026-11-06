@@ -3137,6 +3137,19 @@ begin
     AppendInstallLog('Official Node.js reminder sent for ' + OfficialNodePath);
 end;
 
+{ TNewCheckListBox sizes its glyph gutter from the legacy OBM_CHECKBOXES
+  bitmap (~13px). At >96 DPI, themed BP_RADIOBUTTON / checkbox parts are
+  wider, so DrawThemeBackground shifts left of the item clip and the left
+  arc of radios (and sometimes checkboxes) disappears. Widen Offset and
+  row height so the themed glyph fits. See nvm-windows/nvm#1547. }
+procedure HardenWizardCheckListBox(Box: TNewCheckListBox);
+begin
+  if Box = nil then
+    Exit;
+  Box.Offset := ScaleX(12);
+  Box.MinItemHeight := ScaleY(28);
+end;
+
 procedure UpdateAutoInstallPromptState();
 var
   PromptEnabled: Boolean;
@@ -3469,6 +3482,7 @@ begin
   StoragePermissionsPage.Add('Use the default AppData storage path instead');
   StoragePermissionsPage.Add('Keep this path and continue (may need nvm doctor --autofix later)');
   StoragePermissionsPage.Values[0] := True;
+  HardenWizardCheckListBox(StoragePermissionsPage.CheckListBox);
 
   StoragePermissionsPathLabel := TNewStaticText.Create(StoragePermissionsPage);
   StoragePermissionsPathLabel.Parent := StoragePermissionsPage.Surface;
@@ -3493,6 +3507,7 @@ begin
   OperatingModePage.Add('Link (Legacy)');
   OperatingModePage.Values[1] := WizardDefaultUseLinkMode;
   OperatingModePage.Values[0] := not WizardDefaultUseLinkMode;
+  HardenWizardCheckListBox(OperatingModePage.CheckListBox);
 
   PreferencesPage := CreateInputOptionPage(
     OperatingModePage.ID,
@@ -3514,6 +3529,7 @@ begin
   PreferencesPage.Values[2] := WizardDefaultAutoInstall;
   PreferencesPage.Values[3] := WizardDefaultAutoInstallPrompt;
   PreferencesPage.Values[4] := WizardDefaultRequireTls;
+  HardenWizardCheckListBox(PreferencesPage.CheckListBox);
   PreferencesPage.CheckListBox.ItemEnabled[3] := WizardDefaultAutoInstall;
   PreferencesPage.CheckListBox.OnClickCheck := @PreferencesCheckChanged;
 
