@@ -3779,13 +3779,20 @@ end;
 procedure RegisterInstalledVersionsInWindowsApps();
 var
   ResultCode: Integer;
+  VersionCount: Integer;
 begin
+  VersionCount := CountInstalledNodeVersions(GetInstallRoot(''));
+  if VersionCount < 1 then
+  begin
+    AppendInstallLog('RegisterInstalledVersionsInWindowsApps: no Node versions; skipping');
+    Exit;
+  end;
   if not ExecStep(
     ExpandConstant('{app}\{#Alias}.exe'),
     '--register-installed-versions',
     'NVM4107',
     'Registering installed Node.js versions exceeded its time limit.',
-    WalkTimeoutSec(CountInstalledNodeVersions(GetInstallRoot(''))),
+    WalkTimeoutSec(VersionCount),
     True,
     False,
     ResultCode
@@ -3802,15 +3809,22 @@ end;
 procedure SignInstalledVersionScripts();
 var
   ResultCode: Integer;
+  VersionCount: Integer;
 begin
   { 2.0.0 upgrades have Node installs and no npm-cli.js script-trust rows.
     reshim.exe swallows signer failures; call nvm directly and keep the exit code. }
+  VersionCount := CountInstalledNodeVersions(GetInstallRoot(''));
+  if VersionCount < 1 then
+  begin
+    AppendInstallLog('SignInstalledVersionScripts: no Node versions; skipping');
+    Exit;
+  end;
   if not ExecStep(
     ExpandConstant('{app}\{#Alias}.exe'),
     '--sign-installed-versions',
     'NVM4107',
     'Signing installed Node.js versions exceeded its time limit.',
-    WalkTimeoutSec(CountInstalledNodeVersions(GetInstallRoot(''))),
+    WalkTimeoutSec(VersionCount),
     True,
     False,
     ResultCode
@@ -4417,6 +4431,35 @@ begin
     RegistryDwordOn(HKCU, '{#RegistryKey}', 'AirGapped');
 end;
 
+procedure CopyShippedMalwareSeed(const DataRoot: String);
+var
+  UtilsDir: String;
+  SeedDb: String;
+  SeedHead: String;
+  DestDb: String;
+  DestHead: String;
+begin
+  UtilsDir := ExpandConstant('{app}\utils');
+  SeedDb := AddBackslash(UtilsDir) + 'malware.db';
+  SeedHead := AddBackslash(UtilsDir) + 'head.cose';
+  DestDb := AddBackslash(DataRoot) + 'malware.db';
+  DestHead := AddBackslash(DataRoot) + 'head.cose';
+  if (not FileExists(SeedDb)) or (not FileExists(SeedHead)) then
+    Exit;
+  if not FileCopy(SeedDb, DestDb, False) then
+  begin
+    AppendInstallLogWarn('CopyShippedMalwareSeed: failed to copy malware.db');
+    Exit;
+  end;
+  if not FileCopy(SeedHead, DestHead, False) then
+  begin
+    AppendInstallLogWarn('CopyShippedMalwareSeed: failed to copy head.cose');
+    DeleteFile(DestDb);
+    Exit;
+  end;
+  AppendInstallLog('Copied shipped malware seed to ' + DataRoot);
+end;
+
 procedure SeedMalwareDefinitions(FinalizingPage: TOutputProgressWizardPage);
 var
   SyncExe: String;
@@ -4434,11 +4477,21 @@ begin
     Exit;
   end;
 
+  { Prefer the pack-time seed under utils (community Inno harvests bin\utils\*). }
+  CopyShippedMalwareSeed(DataRoot);
+  if FileExists(DbPath) then
+  begin
+    AppendInstallLog('malware.db seeded from shipped utils copy');
+    Exit;
+  end;
+
   SyncExe := ExpandConstant('{app}\utils\sync.exe');
   if FileExists(SyncExe) then
   begin
     Params := 'malware-refresh --root "' + EscapeDoubleQuotedCommandArgument(DataRoot) + '"';
     AppendInstallLog('Seeding malware.db via ' + SyncExe + ' ' + Params);
+    { Plain Exec: ExecStep timeouts return 1460 and roll back the install.
+      Feed GETs use a 60s HTTP client timeout; community often 401s quickly. }
     if not Exec(SyncExe, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       AppendInstallLogWarn('malware-refresh failed to start (system error ' + IntToStr(ResultCode) + ')')
     else if ResultCode <> 0 then
@@ -4462,12 +4515,14 @@ begin
   if FinalizingPage <> nil then
     FinalizingPage.Hide;
 
+  { Default Yes — community feed may 401 without a pack-time seed; do not
+    abort setup. Package installs stay gated until definitions land. }
   ContinueInstall := SuppressibleMsgBox(
     'NVM4117: Malicious package definitions could not be acquired.' + #13#10#13#10 +
-    'Package installs will be blocked until definitions download.' + #13#10#13#10 +
+    'Package installs may be blocked until definitions download.' + #13#10#13#10 +
     'Continue installation anyway?',
     mbConfirmation,
-    MB_YESNO or MB_DEFBUTTON2,
+    MB_YESNO or MB_DEFBUTTON1,
     IDYES
   ) = IDYES;
 
