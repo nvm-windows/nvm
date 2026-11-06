@@ -21,12 +21,15 @@ end;
 
 function WalkTimeoutSec(const VersionCount: Integer): Integer;
 begin
+  { Fresh installs often have zero Node versions. The old 600s floor made
+    RegisterInstalledVersions / sign / reshim look hung when nvm.exe was
+    cold-started under PowerShell (Defender, first launch). }
   if VersionCount < 1 then
-    Result := 600
+    Result := 90
   else
     Result := VersionCount * 120;
-  if Result < 600 then
-    Result := 600;
+  if Result < 90 then
+    Result := 90;
   if Result > 1800 then
     Result := 1800;
 end;

@@ -36,6 +36,41 @@ Write-Host "Installer version -> $version"
 # Inno copies bin/.sync/* only when sync.exe exists; keep dir present, no DLLs.
 New-Item -ItemType Directory -Force -Path (Join-Path $ctx.BinRoot ".sync") | Out-Null
 
+# Pack-time malware seed into bin\utils so Inno harvests malware.db + head.cose.
+# Live community feed GETs return 401 with temporary tokens; CI should set
+# NVM_ACCESS_TOKEN (or NVM_LICENSE) so malware-refresh can authorize the CDN.
+$utilsRoot = Join-Path $ctx.BinRoot "utils"
+$malwareDbPath = Join-Path $utilsRoot "malware.db"
+$malwareHeadPath = Join-Path $utilsRoot "head.cose"
+$seedPresent = (Test-Path -LiteralPath $malwareDbPath -PathType Leaf) -and (Test-Path -LiteralPath $malwareHeadPath -PathType Leaf)
+if (-not $seedPresent) {
+	$syncExePath = Join-Path $utilsRoot "sync.exe"
+	$token = [string]$env:NVM_ACCESS_TOKEN
+	if ([string]::IsNullOrWhiteSpace($token)) {
+		$token = [string]$env:NVM_LICENSE
+	}
+	if ((Test-Path -LiteralPath $syncExePath -PathType Leaf) -and -not [string]::IsNullOrWhiteSpace($token)) {
+		Write-Host "Fetching malware.db seed via sync.exe malware-refresh (NVM_ACCESS_TOKEN/NVM_LICENSE set)"
+		New-Item -ItemType Directory -Force -Path $utilsRoot | Out-Null
+		$seedProc = Start-Process -FilePath $syncExePath -ArgumentList @("malware-refresh", "--root", $utilsRoot) -Wait -PassThru -NoNewWindow
+		if ($null -ne $seedProc.ExitCode -and $seedProc.ExitCode -ne 0) {
+			Write-Warning ("malware-refresh seed fetch exited {0}; installer will soft-continue without a shipped db" -f $seedProc.ExitCode)
+		}
+	}
+	elseif (-not (Test-Path -LiteralPath $syncExePath -PathType Leaf)) {
+		Write-Warning "sync.exe missing under bin\utils; cannot fetch malware.db seed"
+	}
+	else {
+		Write-Warning "NVM_ACCESS_TOKEN/NVM_LICENSE unset; community malware.db seed skipped (CDN returns 401 for temporary tokens)"
+	}
+}
+if ((Test-Path -LiteralPath $malwareDbPath -PathType Leaf) -and (Test-Path -LiteralPath $malwareHeadPath -PathType Leaf)) {
+	Write-Host "Malware definition seed ready -> $malwareDbPath"
+}
+else {
+	Write-Warning "Malware definition seed not present under bin\utils; setup may show NVM4117"
+}
+
 Write-Host "Building sparse identity package..."
 $identityScript = Join-Path $PSScriptRoot "New-IdentityPackage.ps1"
 if (Test-Path -LiteralPath $identityScript -PathType Leaf) {
