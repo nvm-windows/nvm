@@ -2300,6 +2300,20 @@ begin
   AppendInstallLog('CopyTreeWithProgress completed');
 end;
 
+{ TNewCheckListBox sizes its glyph gutter from the legacy OBM_CHECKBOXES
+  bitmap (~13px). At >96 DPI, themed BP_RADIOBUTTON / checkbox parts are
+  wider, so DrawThemeBackground shifts left of the item clip and the left
+  arc of radios (and sometimes checkboxes) disappears. Widen Offset and
+  row height so the themed glyph fits. See nvm-windows/nvm#1547.
+  Must be defined before officialnode.iss (CreateOfficialNodePage calls it). }
+procedure HardenWizardCheckListBox(Box: TNewCheckListBox);
+begin
+  if Box = nil then
+    Exit;
+  Box.Offset := ScaleX(12);
+  Box.MinItemHeight := ScaleY(28);
+end;
+
 #include "officialnode.iss"
 
 procedure MigrateNodeStorageIfNeeded();
@@ -3135,19 +3149,6 @@ begin
     AppendInstallLogWarn('Official Node.js reminder exit=' + IntToStr(ResultCode))
   else
     AppendInstallLog('Official Node.js reminder sent for ' + OfficialNodePath);
-end;
-
-{ TNewCheckListBox sizes its glyph gutter from the legacy OBM_CHECKBOXES
-  bitmap (~13px). At >96 DPI, themed BP_RADIOBUTTON / checkbox parts are
-  wider, so DrawThemeBackground shifts left of the item clip and the left
-  arc of radios (and sometimes checkboxes) disappears. Widen Offset and
-  row height so the themed glyph fits. See nvm-windows/nvm#1547. }
-procedure HardenWizardCheckListBox(Box: TNewCheckListBox);
-begin
-  if Box = nil then
-    Exit;
-  Box.Offset := ScaleX(12);
-  Box.MinItemHeight := ScaleY(28);
 end;
 
 procedure UpdateAutoInstallPromptState();
