@@ -126,8 +126,8 @@ ElevationRequirement: elevatesSelf
 InstallationMetadata:
   DefaultInstallLocation: '%LocalAppData%\Author Software\nvm'
 InstallerSwitches:
-  Silent: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-  SilentWithProgress: /SILENT /SUPPRESSMSGBOXES /NORESTART
+  Silent: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /FORCECLOSEAPPLICATIONS /NVMSELFUPGRADE=1
+  SilentWithProgress: /SILENT /SUPPRESSMSGBOXES /NORESTART /FORCECLOSEAPPLICATIONS /NVMSELFUPGRADE=1
 Installers:
 $($installerEntries -join "`n")
 ManifestType: installer

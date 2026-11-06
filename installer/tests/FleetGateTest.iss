@@ -1,5 +1,6 @@
 #define Name "NVM for Windows"
 #define Version "0.0.0-test"
+#define AppId "7E4C1A2B-9D10-4F55-A111-0FF1C1A10016"
 
 [Setup]
 AppId={{7E4C1A2B-9D10-4F55-A111-0FF1C1A10016}

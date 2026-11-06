@@ -202,7 +202,8 @@ begin
     Exit;
   if (CompareText(FileName, 'UniGetUI.exe') = 0) or
      (CompareText(FileName, 'WingetUI.exe') = 0) or
-     (CompareText(FileName, 'uniget.exe') = 0) then
+     (CompareText(FileName, 'uniget.exe') = 0) or
+     (CompareText(FileName, 'winget.exe') = 0) then
   begin
     Result := True;
     Exit;
@@ -237,6 +238,18 @@ end;
 function IsSelfUpgradeRequest(): Boolean;
 begin
   Result := CompareText(Trim(ExpandConstant('{param:NVMSELFUPGRADE|}')), '1') = 0;
+end;
+
+{ Same AppId uninstall entry means this is an upgrade of an existing community
+  install (2.0.x sync silent upgrade lacked /NVMSELFUPGRADE). Still refuse
+  SYSTEM, Intune/fleet hosts, and AgentExecutor-peer silent deploys. }
+function IsExistingCommunityInstall(): Boolean;
+begin
+  Result := RegValueExists(
+    HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1',
+    'DisplayVersion'
+  );
 end;
 
 function PassesFleetInstallGate(): Boolean;
@@ -309,7 +322,7 @@ begin
   if not WizardSilent then
     Exit;
 
-  if UserControlled or ConsoleOk or SelfUpgrade then
+  if UserControlled or ConsoleOk or SelfUpgrade or IsExistingCommunityInstall() then
     Exit;
 
   AbortFleetSetup('silent-no-console');

@@ -244,7 +244,7 @@ jobs:
           }
 
           Write-Host "Running local installer smoke test -> $installer"
-          $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru -NoNewWindow
+          $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/FORCECLOSEAPPLICATIONS', '/NVMSELFUPGRADE=1' -PassThru -NoNewWindow
           if (-not $proc.WaitForExit(240000)) {
             try { $proc.Kill($true) } catch { $proc.Kill() }
             Write-InstallTestSkipped "installer did not finish within 4 minutes."

@@ -389,7 +389,7 @@ jobs:
           $url = "https://files.jrsoftware.org/is/6/innosetup-$ver.exe"
           Write-Host "Downloading $url"
           Invoke-WebRequest -Uri $url -OutFile $exe
-          Start-Process -FilePath $exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-" -Wait -NoNewWindow
+          Start-Process -FilePath $exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/SP-","/FORCECLOSEAPPLICATIONS","/NVMSELFUPGRADE=1" -Wait -NoNewWindow
           $iscc = $isccCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
           if (-not $iscc) {
             throw "Inno Setup $ver install did not produce ISCC.exe"
