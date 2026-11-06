@@ -385,6 +385,7 @@ begin
   );
   OfficialNodePage.Add('Adopt — copy into NVM and uninstall the existing installation');
   OfficialNodePage.Add('Drop — uninstall the existing installation (do not copy)');
+  HardenWizardCheckListBox(OfficialNodePage.CheckListBox);
 
   if OfficialNodeAction = 'drop' then
     OfficialNodePage.Values[1] := True
