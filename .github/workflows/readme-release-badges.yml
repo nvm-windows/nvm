@@ -2,6 +2,10 @@ name: Update release docs
 
 # Release Community Build publishes with github.token, which does not emit release
 # events to other workflows. workflow_run is the primary trigger after publish.
+#
+# main requires status checks (DCO / description / dependency-review), so this
+# job cannot push straight to the default branch. It opens a PR and merges once
+# those checks pass. Bot commits are exempt from DCO.
 on:
   release:
     types: [published, released, prereleased]
@@ -12,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: release-docs
@@ -68,9 +73,12 @@ jobs:
         run: |
           & .\build\steps\Update-ThanksContributors.ps1
 
-      - name: Commit and push
+      - name: Commit, open PR, and merge
         env:
           GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: ${{ steps.branch.outputs.name }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -82,5 +90,59 @@ jobs:
             exit 0
           }
 
+          $head = "chore/release-docs-$env:RUN_ID"
+          git switch -c $head
           git commit -m "chore: update release docs (badges + contributors)"
-          git push origin HEAD
+          git push -u origin HEAD
+
+          $bodyPath = Join-Path $env:RUNNER_TEMP "release-docs-pr-body.md"
+          @(
+            '## What'
+            'Refresh README release badges and THANKS.md contributors from the latest published GitHub releases.'
+            ''
+            '## Why'
+            "The Update release docs workflow cannot push directly to ``$($env:BASE_BRANCH)`` under the PR required-checks ruleset. Landing via PR lets DCO, description, and dependency-review complete."
+            ''
+            '## Testing'
+            '- Workflow regenerated README/THANKS from ``gh release list``'
+            '- Required checks on this PR must pass before merge'
+            ''
+            '## Risk'
+            'Low. Docs-only change to README badges and contributor thanks.'
+          ) | Set-Content -LiteralPath $bodyPath -Encoding utf8
+
+          $prUrl = gh pr create --repo $env:REPO --base $env:BASE_BRANCH --head $head `
+            --title "chore: update release docs (badges + contributors)" `
+            --body-file $bodyPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "gh pr create failed"
+          }
+          Write-Host "Opened $prUrl"
+
+          $prNumber = gh pr view $prUrl --repo $env:REPO --json number -q .number
+          if ([string]::IsNullOrWhiteSpace($prNumber)) {
+            throw "Could not resolve PR number from $prUrl"
+          }
+
+          # Poll until required checks appear, then watch them. Fail on red checks.
+          $deadline = (Get-Date).AddMinutes(20)
+          while ((Get-Date) -lt $deadline) {
+            $checksJson = gh pr checks $prNumber --repo $env:REPO --json name,state,bucket 2>$null
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($checksJson) -and $checksJson -ne '[]') {
+              break
+            }
+            Write-Host "Waiting for required checks to register..."
+            Start-Sleep -Seconds 10
+          }
+
+          gh pr checks $prNumber --repo $env:REPO --watch --fail-fast
+          if ($LASTEXITCODE -ne 0) {
+            throw "Required checks failed for PR #$prNumber"
+          }
+
+          gh pr merge $prNumber --repo $env:REPO --squash --delete-branch `
+            --subject "chore: update release docs (badges + contributors) (#$prNumber)"
+          if ($LASTEXITCODE -ne 0) {
+            throw "gh pr merge failed for PR #$prNumber"
+          }
+          Write-Host "Merged PR #$prNumber"
