@@ -62,6 +62,8 @@ function Get-InstallerStepBudgetSeconds {
 		return 300
 	}
 	if ($Kind -eq "copy") {
+		# Hang limit floor used by Pascal CopyHardTimeoutSec (300..900). Kept for budget queries only;
+		# timed ExecStep no longer routes through this script for non-elevated steps.
 		if ($Count -le 0) {
 			return 0
 		}
