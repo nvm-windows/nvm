@@ -221,6 +221,13 @@ var
   BudgetDeadline: Cardinal;
   BudgetCode: String;
   BudgetMessage: String;
+  ExecStepProgressPage: TOutputProgressWizardPage;
+  ExecStepSoftWarnSec: Integer;
+  ExecStepSoftWarnDetail: String;
+  ExecStepSoftWarnVersion: String;
+  LastInstallerFailureCode: String;
+  LastInstallerFailureMessage: String;
+  LastInstallerFailureLogPath: String;
   DeferOfficialNodeOnV2Upgrade: Boolean;
   SkippedSymlinkLogPath: String;
   SkippedSymlinkLogBuffer: String;
@@ -273,6 +280,20 @@ const
   FleetWalkMaxDepth = 16;
   NVM4116EventId = 4116;
   NVM4117EventId = 4117;
+  WAIT_OBJECT_0 = 0;
+  WAIT_TIMEOUT = $00000102;
+  SYNCHRONIZE = $00100000;
+  PROCESS_TERMINATE = $0001;
+  CSIDL_COMMON_APPDATA = $0023;
+  InstallLogSliceMaxChars = 49152;
+  SC_MANAGER_CONNECT = $0001;
+  SERVICE_QUERY_STATUS = $0004;
+  SERVICE_RUNNING = $00000004;
+  CopySoftWarnSecDefault = 90;
+  CopyHardTimeoutMinSec = 300;
+  CopyHardTimeoutMaxSec = 900;
+  MigrationWarnMinFiles = 100000;
+  MigrationWarnMinBytes = 1073741824; { 1 GiB }
 
 type
   TProcessEntry32W = record
@@ -287,10 +308,20 @@ type
     dwFlags: DWORD;
     szExeFile: array[0..259] of Char;
   end;
+  TServiceStatus = record
+    dwServiceType: DWORD;
+    dwCurrentState: DWORD;
+    dwControlsAccepted: DWORD;
+    dwWin32ExitCode: DWORD;
+    dwServiceSpecificExitCode: DWORD;
+    dwCheckPoint: DWORD;
+    dwWaitHint: DWORD;
+  end;
 
 procedure WriteApplicationEventError(EventId: Integer; const Message: String); forward;
 #include "fleetgate.iss"
 #include "installtimeout.iss"
+#include "installpreflight.iss"
 
 function SendMessageTimeoutW(hWnd: HWND; Msg: UINT; wParam: UINT; lParam: String;
   fuFlags: UINT; uTimeout: UINT; var lpdwResult: DWORD): DWORD;
@@ -381,6 +412,32 @@ procedure AppendInstallLogWarn(const Message: String);
 begin
   InstallLogHasIssues := True;
   AppendInstallLog(Message);
+end;
+
+procedure AppendInstallLogPersistent(const Message: String);
+begin
+  AppendInstallLog(Message);
+  AppendProgramDataSetupLog(Message);
+end;
+
+procedure MirrorInstallLogSliceToProgramData;
+var
+  Slice: String;
+  StartPos: Integer;
+begin
+  if InstallLogBuffer = '' then
+    Exit;
+  Slice := InstallLogBuffer;
+  if Length(Slice) > InstallLogSliceMaxChars then
+  begin
+    StartPos := Length(Slice) - InstallLogSliceMaxChars + 1;
+    Slice := Copy(Slice, StartPos, InstallLogSliceMaxChars);
+  end;
+  AppendProgramDataSetupLog('--- install.log slice begin ---');
+  SaveStringToFile(GetInstallerSetupLogPath, Slice, True);
+  if (Length(Slice) = 0) or (Slice[Length(Slice)] <> #10) then
+    SaveStringToFile(GetInstallerSetupLogPath, #13#10, True);
+  AppendProgramDataSetupLog('--- install.log slice end ---');
 end;
 
 // Writes a classic Application log Error via PowerShell. No custom source registration.
@@ -700,12 +757,22 @@ begin
     Result := Trim(NodeStoragePage.Values[0]);
 end;
 
-// DataRoot is the program root ({app}). Runtime dirs (.shim / .nodejs / .cache /
-// .sync / .verify / proxy.exe) always live here — never parent(InstallRoot).
-// Custom InstallRoot may be D:\nvm; deriving DataRoot from that spilled dirs onto D:\.
+// DataRoot is the parent of InstallRoot (.shim / .nodejs / .cache live here).
+// Default InstallRoot={app}\installs keeps DataRoot={app}. Custom storage splits them.
 function GetDataRoot(Param: String): String;
+var
+  InstallRoot: String;
 begin
-  Result := ExpandConstant('{app}');
+  InstallRoot := NormalizePath(GetInstallRoot(''));
+  if InstallRoot = '' then
+  begin
+    Result := ExpandConstant('{app}');
+    Exit;
+  end;
+
+  Result := NormalizePath(ExtractFileDir(InstallRoot));
+  if Result = '' then
+    Result := ExpandConstant('{app}');
 end;
 
 function GetLegacySettingValue(const SettingsText: String; const Key: String): String;
@@ -1156,85 +1223,12 @@ begin
     'Disallowed locations include:' + #13#10 +
     '- Windows, System32, WinSxS, Program Files, Program Files (x86), ProgramData, WindowsApps, Recycle Bin' + #13#10 +
     '- Drive roots (C:\)' + #13#10 +
-    '- Folders directly under a drive root (D:\tools) — use D:\tools\nvm\installs so runtime files are not on the drive root' + #13#10 +
-    '- Existing folders that already contain non-NVM content (other apps would be deleted on uninstall)' + #13#10 +
     '- Your user profile, AppData, Desktop, Documents, Downloads, Pictures, Videos, Music' + #13#10 +
     '- Start Menu, Startup, LocalAppData\Programs, LocalAppData\Microsoft' + #13#10 +
     '- The NVM program folder, .shim, .nodejs, and utils' + #13#10 +
     '- Any parent of those folders (for example C:\Users)' + #13#10 + #13#10 +
     'Use a dedicated directory. Default: %LOCALAPPDATA%\Author Software\nvm\installs' + #13#10 + #13#10 +
     'Event code: NVM4313';
-end;
-
-function IsDriveRootPath(const PathValue: String): Boolean;
-var
-  PathNorm: String;
-  Drive: String;
-begin
-  PathNorm := NormalizePath(PathValue);
-  Result := False;
-  if PathNorm = '' then
-    Exit;
-  Drive := ExtractFileDrive(PathNorm);
-  if Drive = '' then
-    Exit;
-  Result := CompareText(RemoveBackslashUnlessRoot(PathNorm), RemoveBackslashUnlessRoot(Drive)) = 0;
-end;
-
-function IsManagedNodeVersionDirName(const Name: String): Boolean;
-var
-  Rest: String;
-  I: Integer;
-  Digits: Boolean;
-begin
-  Result := False;
-  if (Length(Name) < 2) or ((Name[1] <> 'v') and (Name[1] <> 'V')) then
-    Exit;
-  Rest := Copy(Name, 2, MaxInt);
-  Digits := False;
-  for I := 1 to Length(Rest) do
-  begin
-    case Rest[I] of
-      '0'..'9':
-        Digits := True;
-      '.', '-', '_', 'a'..'z', 'A'..'Z':
-        if not Digits then
-          Exit;
-    else
-      Exit;
-    end;
-  end;
-  Result := Digits;
-end;
-
-function InstallRootHasForeignContent(const PathValue: String): Boolean;
-var
-  PathNorm: String;
-  FindRec: TFindRec;
-begin
-  Result := False;
-  PathNorm := NormalizePath(PathValue);
-  if (PathNorm = '') or (not DirExists(PathNorm)) then
-    Exit;
-  if FindFirst(AddBackslash(PathNorm) + '*', FindRec) then
-  try
-    repeat
-      if (FindRec.Name = '.') or (FindRec.Name = '..') then
-        Continue;
-      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
-      begin
-        Result := True;
-        Exit;
-      end;
-      if not IsManagedNodeVersionDirName(FindRec.Name) then
-      begin
-        Result := True;
-        Exit;
-      end;
-    until not FindNext(FindRec);
-  finally
-    FindClose(FindRec);
-  end;
 end;
 
 function IsDisallowedNodeStorage(const PathValue: String): Boolean;
@@ -1244,7 +1238,6 @@ var
   Exact: TArrayOfString;
   I: Integer;
   Drive: String;
-  Parent: String;
 begin
   Result := True;
   PathNorm := NormalizePath(PathValue);
@@ -1255,17 +1248,6 @@ begin
     Exit;
 
   if (Length(PathNorm) = 2) and (PathNorm[2] = ':') then
-    Exit;
-
-  if IsDriveRootPath(PathNorm) then
-    Exit;
-
-  { Parent is drive root → DataRoot would be D:\ (.shim next to every folder on the drive). }
-  Parent := NormalizePath(ExtractFileDir(PathNorm));
-  if (Parent <> '') and IsDriveRootPath(Parent) then
-    Exit;
-
-  if InstallRootHasForeignContent(PathNorm) then
     Exit;
 
   CollectInstallRootProtect(Subtree, Exact);
@@ -1298,8 +1280,10 @@ end;
 
 function UninstallScanDataRoot(const AppRoot, InstallRoot: String): String;
 begin
-  { Runtime dirs always live under the program root (AppRoot), not parent(InstallRoot). }
   Result := AppRoot;
+  if (InstallRoot = '') or IsDisallowedNodeStorage(InstallRoot) then
+    Exit;
+  Result := RemoveBackslashUnlessRoot(ExtractFileDir(InstallRoot));
   if Result = '' then
     Result := InstallRoot;
 end;
@@ -2214,6 +2198,7 @@ var
   ResultCode: Integer;
   ExecResult: Boolean;
   SourceFileCount: Integer;
+  SourceBytes: Int64;
   SourceArg: String;
   DestArg: String;
   ProgressSubText: String;
@@ -2225,10 +2210,17 @@ begin
 
   SourceArg := NormalizePath(SourceDir);
   DestArg := NormalizePath(DestDir);
-  AppendInstallLog('CopyTreeWithProgress (robocopy): ' + SourceArg + ' -> ' + DestArg);
+  AppendInstallLogPersistent('CopyTreeWithProgress (robocopy): ' + SourceArg + ' -> ' + DestArg);
 
   SourceFileCount := 0;
-  CountFilesInTree(SourceArg, SourceFileCount);
+  SourceBytes := 0;
+  CountTreeFilesAndBytes(SourceArg, SourceFileCount, SourceBytes);
+  AppendInstallLogPersistent(
+    'CopyTreeWithProgress: version=' + Trim(VersionLabel) +
+    ' files=' + IntToStr(SourceFileCount) +
+    ' bytes=' + IntToStr(SourceBytes) +
+    ' (' + FormatByteSize(SourceBytes) + ')'
+  );
 
   if not ForceDirectories(DestArg) then
   begin
@@ -2252,30 +2244,51 @@ begin
   end;
 
   { Drop /V: verbose lines go to a hidden console (SW_HIDE), not the wizard or install.log. }
+  StepSeconds := CopyHardTimeoutSec(SourceFileCount, SourceBytes);
   StepCode := 'NVM4105';
-  StepMessage := 'Copying a Node.js version exceeded 5 minutes.';
-  StepSeconds := 300;
+  StepMessage :=
+    'Copying a Node.js version exceeded its time limit (' + IntToStr(StepSeconds) + 's).';
+  if Trim(VersionLabel) <> '' then
+    StepMessage :=
+      'Copying ' + Trim(VersionLabel) + ' exceeded its time limit (' + IntToStr(StepSeconds) + 's).';
   if StepBudgetArmed and (BudgetCode <> '') then
   begin
     StepCode := BudgetCode;
     StepMessage := BudgetMessage;
     StepSeconds := RemainingBudgetSec;
   end;
-  ExecResult :=
-    ExecStep(
-      'robocopy.exe',
-      '"' + SourceArg + '" "' + DestArg + '" /E /MT:16 /R:1 /W:1 /NP /XJF /XJD /SJ',
-      StepCode,
-      StepMessage,
-      StepSeconds,
-      False,
-      False,
-      ResultCode
-    );
+
+  ArmExecStepSoftWarn(
+    ProgressPage,
+    CopySoftWarnSecDefault,
+    VersionLabel,
+    'Still copying. Large installs or security software can slow this step.'
+  );
+  try
+    ExecResult :=
+      ExecStep(
+        'robocopy.exe',
+        '"' + SourceArg + '" "' + DestArg + '" /E /MT:16 /R:1 /W:1 /NP /XJF /XJD /SJ',
+        StepCode,
+        StepMessage,
+        StepSeconds,
+        False,
+        False,
+        ResultCode
+      );
+  finally
+    ClearExecStepSoftWarn;
+  end;
 
   if not ExecResult then
   begin
-    AppendInstallLogWarn('Robocopy execution failed for ' + SourceArg);
+    if ResultCode = 1460 then
+      AppendInstallLogWarn('Robocopy timed out for ' + SourceArg)
+    else
+      AppendInstallLogWarn('Robocopy execution failed for ' + SourceArg);
+    AppendProgramDataSetupLog(
+      'Robocopy step failed code=' + IntToStr(ResultCode) + ' source=' + SourceArg
+    );
     Result := False;
     Exit;
   end;
@@ -2284,6 +2297,10 @@ begin
   begin
     AppendInstallLogWarn('Robocopy failed with code ' + IntToStr(ResultCode));
     AppendInstallLogWarn('Robocopy command source=' + SourceArg + ' dest=' + DestArg);
+    AppendProgramDataSetupLog(
+      'Robocopy failed with code ' + IntToStr(ResultCode) +
+      ' source=' + SourceArg + ' dest=' + DestArg
+    );
     Result := False;
     Exit;
   end;
@@ -2300,20 +2317,6 @@ begin
   AppendInstallLog('CopyTreeWithProgress completed');
 end;
 
-{ TNewCheckListBox sizes its glyph gutter from the legacy OBM_CHECKBOXES
-  bitmap (~13px). At >96 DPI, themed BP_RADIOBUTTON / checkbox parts are
-  wider, so DrawThemeBackground shifts left of the item clip and the left
-  arc of radios (and sometimes checkboxes) disappears. Widen Offset and
-  row height so the themed glyph fits. See nvm-windows/nvm#1547.
-  Must be defined before officialnode.iss (CreateOfficialNodePage calls it). }
-procedure HardenWizardCheckListBox(Box: TNewCheckListBox);
-begin
-  if Box = nil then
-    Exit;
-  Box.Offset := ScaleX(12);
-  Box.MinItemHeight := ScaleY(28);
-end;
-
 #include "officialnode.iss"
 
 procedure MigrateNodeStorageIfNeeded();
@@ -2321,6 +2324,9 @@ var
   ExistingRoot: String;
   TargetRoot: String;
   FileCount: Integer;
+  TotalBytes: Int64;
+  FreeBytes: Int64;
+  AntivirusLabel: String;
   CopiedCount: Integer;
   ProgressPage: TOutputProgressWizardPage;
   TargetExistedBefore: Boolean;
@@ -2328,9 +2334,12 @@ var
   CopiedVersionDirCount: Integer;
   SourceVersionDir: String;
   TargetVersionDir: String;
+  VersionFiles: Integer;
+  VersionBytes: Int64;
   FindRec: TFindRec;
+  SameVolume: Boolean;
 begin
-  AppendInstallLog('MigrateNodeStorageIfNeeded: begin');
+  AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: begin');
   ResetSkippedSymlinkLog();
   AppendInstallLog('MigrateNodeStorageIfNeeded: IsPreV2Upgrade=' + IntToStr(Integer(IsPreV2Upgrade)));
   AppendInstallLog('MigrateNodeStorageIfNeeded: LegacyInstallDir=' + LegacyInstallDir);
@@ -2348,8 +2357,8 @@ begin
   end;
 
   TargetRoot := GetInstallRoot('');
-  AppendInstallLog('MigrateNodeStorageIfNeeded: resolved source=' + ExistingRoot);
-  AppendInstallLog('MigrateNodeStorageIfNeeded: resolved target=' + TargetRoot);
+  AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: resolved source=' + ExistingRoot);
+  AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: resolved target=' + TargetRoot);
 
   if CompareText(NormalizePath(ExistingRoot), NormalizePath(TargetRoot)) = 0 then
   begin
@@ -2364,10 +2373,51 @@ begin
   end;
 
   FileCount := 0;
+  TotalBytes := 0;
   VersionDirCount := 0;
-  CountFilesInLegacyVersionDirectories(ExistingRoot, FileCount, VersionDirCount);
-  AppendInstallLog('MigrateNodeStorageIfNeeded: version directory count=' + IntToStr(VersionDirCount));
-  AppendInstallLog('MigrateNodeStorageIfNeeded: source version file count=' + IntToStr(FileCount));
+  if FindFirst(AddBackslash(ExistingRoot) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') and
+           ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
+           IsLegacyVersionDirectoryName(FindRec.Name) then
+        begin
+          VersionDirCount := VersionDirCount + 1;
+          VersionFiles := 0;
+          VersionBytes := 0;
+          CountTreeFilesAndBytes(
+            AddBackslash(ExistingRoot) + FindRec.Name,
+            VersionFiles,
+            VersionBytes
+          );
+          FileCount := FileCount + VersionFiles;
+          TotalBytes := TotalBytes + VersionBytes;
+          AppendInstallLogPersistent(
+            'MigrateNodeStorageIfNeeded: version=' + FindRec.Name +
+            ' files=' + IntToStr(VersionFiles) +
+            ' bytes=' + IntToStr(VersionBytes) +
+            ' timeoutSec=' + IntToStr(CopyHardTimeoutSec(VersionFiles, VersionBytes))
+          );
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+
+  SameVolume := SameVolumePaths(ExistingRoot, TargetRoot);
+  AntivirusLabel := DetectInstallerAntivirusLabel;
+  FreeBytes := 0;
+  if not GetPathFreeBytes(TargetRoot, FreeBytes) then
+    GetPathFreeBytes(ExtractFileDrive(TargetRoot) + '\', FreeBytes);
+
+  AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: version directory count=' + IntToStr(VersionDirCount));
+  AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: source version file count=' + IntToStr(FileCount));
+  AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: source version bytes=' + IntToStr(TotalBytes) + ' (' + FormatByteSize(TotalBytes) + ')');
+  AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: sameVolume=' + IntToStr(Integer(SameVolume)));
+  AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: destFreeBytes=' + IntToStr(FreeBytes) + ' (' + FormatByteSize(FreeBytes) + ')');
+  AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: antivirus=' + AntivirusLabel);
 
   if VersionDirCount = 0 then
   begin
@@ -2379,6 +2429,20 @@ begin
   begin
     AppendInstallLogWarn('MigrateNodeStorageIfNeeded: version directories are empty, skipping migration');
     Exit;
+  end;
+
+  if (not WizardSilent) and ShouldWarnBeforeMigration(FileCount, TotalBytes, AntivirusLabel) then
+  begin
+    MsgBox(
+      'Migrating existing Node.js versions may take several minutes.' + #13#10 + #13#10 +
+      'Detected ' + IntToStr(VersionDirCount) + ' version(s), ' +
+      IntToStr(FileCount) + ' files (' + FormatByteSize(TotalBytes) + ').' + #13#10 +
+      'Security software: ' + AntivirusLabel + #13#10 + #13#10 +
+      'If this step is slow, excluding the NVM data folders from realtime scanning can help.' + #13#10 +
+      'Do not disable enterprise antivirus or EDR agents.',
+      mbInformation,
+      MB_OK
+    );
   end;
 
   ProgressPage := CreateOutputProgressPage(
@@ -2418,7 +2482,7 @@ begin
           begin
             SourceVersionDir := AddBackslash(ExistingRoot) + FindRec.Name;
             TargetVersionDir := AddBackslash(TargetRoot) + FindRec.Name;
-            AppendInstallLog('MigrateNodeStorageIfNeeded: copying version directory ' + FindRec.Name);
+            AppendInstallLogPersistent('MigrateNodeStorageIfNeeded: copying version directory ' + FindRec.Name);
 
             if not CopyTreeWithProgress(SourceVersionDir, TargetVersionDir, ProgressPage, CopiedCount, FileCount, FindRec.Name) then
             begin
@@ -3483,7 +3547,6 @@ begin
   StoragePermissionsPage.Add('Use the default AppData storage path instead');
   StoragePermissionsPage.Add('Keep this path and continue (may need nvm doctor --autofix later)');
   StoragePermissionsPage.Values[0] := True;
-  HardenWizardCheckListBox(StoragePermissionsPage.CheckListBox);
 
   StoragePermissionsPathLabel := TNewStaticText.Create(StoragePermissionsPage);
   StoragePermissionsPathLabel.Parent := StoragePermissionsPage.Surface;
@@ -3508,7 +3571,6 @@ begin
   OperatingModePage.Add('Link (Legacy)');
   OperatingModePage.Values[1] := WizardDefaultUseLinkMode;
   OperatingModePage.Values[0] := not WizardDefaultUseLinkMode;
-  HardenWizardCheckListBox(OperatingModePage.CheckListBox);
 
   PreferencesPage := CreateInputOptionPage(
     OperatingModePage.ID,
@@ -3530,7 +3592,6 @@ begin
   PreferencesPage.Values[2] := WizardDefaultAutoInstall;
   PreferencesPage.Values[3] := WizardDefaultAutoInstallPrompt;
   PreferencesPage.Values[4] := WizardDefaultRequireTls;
-  HardenWizardCheckListBox(PreferencesPage.CheckListBox);
   PreferencesPage.CheckListBox.ItemEnabled[3] := WizardDefaultAutoInstall;
   PreferencesPage.CheckListBox.OnClickCheck := @PreferencesCheckChanged;
 
@@ -3643,8 +3704,8 @@ begin
   BroadcastEnvironmentChange();
 end;
 
-// DataRoot is always {app}. When InstallRoot is customized on another volume,
-// still keep .shim / proxy / .nodejs under the program root (closes #1388 / #1516).
+// When InstallRoot is customized, DataRoot leaves {app}. Seed runtime .shim + proxy
+// so PATH/.nodejs match where nvm use / reshim write shims (closes #1388).
 procedure EnsureDataRootRuntimeLayout();
 var
   DataRoot: String;
@@ -3780,20 +3841,13 @@ end;
 procedure RegisterInstalledVersionsInWindowsApps();
 var
   ResultCode: Integer;
-  VersionCount: Integer;
 begin
-  VersionCount := CountInstalledNodeVersions(GetInstallRoot(''));
-  if VersionCount < 1 then
-  begin
-    AppendInstallLog('RegisterInstalledVersionsInWindowsApps: no Node versions; skipping');
-    Exit;
-  end;
   if not ExecStep(
     ExpandConstant('{app}\{#Alias}.exe'),
     '--register-installed-versions',
     'NVM4107',
     'Registering installed Node.js versions exceeded its time limit.',
-    WalkTimeoutSec(VersionCount),
+    WalkTimeoutSec(CountInstalledNodeVersions(GetInstallRoot(''))),
     True,
     False,
     ResultCode
@@ -3810,22 +3864,15 @@ end;
 procedure SignInstalledVersionScripts();
 var
   ResultCode: Integer;
-  VersionCount: Integer;
 begin
   { 2.0.0 upgrades have Node installs and no npm-cli.js script-trust rows.
     reshim.exe swallows signer failures; call nvm directly and keep the exit code. }
-  VersionCount := CountInstalledNodeVersions(GetInstallRoot(''));
-  if VersionCount < 1 then
-  begin
-    AppendInstallLog('SignInstalledVersionScripts: no Node versions; skipping');
-    Exit;
-  end;
   if not ExecStep(
     ExpandConstant('{app}\{#Alias}.exe'),
     '--sign-installed-versions',
     'NVM4107',
     'Signing installed Node.js versions exceeded its time limit.',
-    WalkTimeoutSec(VersionCount),
+    WalkTimeoutSec(CountInstalledNodeVersions(GetInstallRoot(''))),
     True,
     False,
     ResultCode
@@ -4432,35 +4479,6 @@ begin
     RegistryDwordOn(HKCU, '{#RegistryKey}', 'AirGapped');
 end;
 
-procedure CopyShippedMalwareSeed(const DataRoot: String);
-var
-  UtilsDir: String;
-  SeedDb: String;
-  SeedHead: String;
-  DestDb: String;
-  DestHead: String;
-begin
-  UtilsDir := ExpandConstant('{app}\utils');
-  SeedDb := AddBackslash(UtilsDir) + 'malware.db';
-  SeedHead := AddBackslash(UtilsDir) + 'head.cose';
-  DestDb := AddBackslash(DataRoot) + 'malware.db';
-  DestHead := AddBackslash(DataRoot) + 'head.cose';
-  if (not FileExists(SeedDb)) or (not FileExists(SeedHead)) then
-    Exit;
-  if not FileCopy(SeedDb, DestDb, False) then
-  begin
-    AppendInstallLogWarn('CopyShippedMalwareSeed: failed to copy malware.db');
-    Exit;
-  end;
-  if not FileCopy(SeedHead, DestHead, False) then
-  begin
-    AppendInstallLogWarn('CopyShippedMalwareSeed: failed to copy head.cose');
-    DeleteFile(DestDb);
-    Exit;
-  end;
-  AppendInstallLog('Copied shipped malware seed to ' + DataRoot);
-end;
-
 procedure SeedMalwareDefinitions(FinalizingPage: TOutputProgressWizardPage);
 var
   SyncExe: String;
@@ -4478,21 +4496,11 @@ begin
     Exit;
   end;
 
-  { Prefer the pack-time seed under utils (community Inno harvests bin\utils\*). }
-  CopyShippedMalwareSeed(DataRoot);
-  if FileExists(DbPath) then
-  begin
-    AppendInstallLog('malware.db seeded from shipped utils copy');
-    Exit;
-  end;
-
   SyncExe := ExpandConstant('{app}\utils\sync.exe');
   if FileExists(SyncExe) then
   begin
     Params := 'malware-refresh --root "' + EscapeDoubleQuotedCommandArgument(DataRoot) + '"';
     AppendInstallLog('Seeding malware.db via ' + SyncExe + ' ' + Params);
-    { Plain Exec: ExecStep timeouts return 1460 and roll back the install.
-      Feed GETs use a 60s HTTP client timeout; community often 401s quickly. }
     if not Exec(SyncExe, Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
       AppendInstallLogWarn('malware-refresh failed to start (system error ' + IntToStr(ResultCode) + ')')
     else if ResultCode <> 0 then
@@ -4516,14 +4524,12 @@ begin
   if FinalizingPage <> nil then
     FinalizingPage.Hide;
 
-  { Default Yes — community feed may 401 without a pack-time seed; do not
-    abort setup. Package installs stay gated until definitions land. }
   ContinueInstall := SuppressibleMsgBox(
     'NVM4117: Malicious package definitions could not be acquired.' + #13#10#13#10 +
-    'Package installs may be blocked until definitions download.' + #13#10#13#10 +
+    'Package installs will be blocked until definitions download.' + #13#10#13#10 +
     'Continue installation anyway?',
     mbConfirmation,
-    MB_YESNO or MB_DEFBUTTON1,
+    MB_YESNO or MB_DEFBUTTON2,
     IDYES
   ) = IDYES;
 
@@ -4773,8 +4779,12 @@ begin
   AppendInstallLog('DeinitializeSetup: begin');
   if InstallerHardFailed then
   begin
-    if (not WizardSilent) then
-      ShowInstallerFailureDialog();
+    MirrorInstallLogSliceToProgramData;
+    if not WizardSilent then
+    begin
+      if not ShowInstallerFailureDialog() then
+        ShowInstallerFailureMsgBoxFallback;
+    end;
     ScheduleInstallerRollback();
     FlushInstallLog();
     ExitProcess(1);
@@ -5375,37 +5385,9 @@ begin
   Result := Trim(Result);
 end;
 
-procedure RemoveManagedVersionDirsOnly(const RootDir: String);
-var
-  FindRec: TFindRec;
-  Child: String;
-begin
-  if (RootDir = '') or (not DirExists(RootDir)) then
-    Exit;
-  if FindFirst(AddBackslash(RootDir) + '*', FindRec) then
-  try
-    repeat
-      if (FindRec.Name = '.') or (FindRec.Name = '..') then
-        Continue;
-      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then
-        Continue;
-      if not IsManagedNodeVersionDirName(FindRec.Name) then
-        Continue;
-      Child := AddBackslash(RootDir) + FindRec.Name;
-      if DelTree(Child, True, True, True) then
-        Log('Removed managed Node version directory: ' + Child)
-      else
-        Log('Failed to remove managed Node version directory: ' + Child);
-    until not FindNext(FindRec);
-  finally
-    FindClose(FindRec);
-  end;
-end;
-
 procedure CleanupInstallRootOnUninstall();
 var
   RootToRemove: String;
-  UnsafeOrShared: Boolean;
 begin
   RootToRemove := Trim(UninstallInstallRoot);
   if RootToRemove = '' then
@@ -5417,27 +5399,9 @@ begin
   if not DirExists(RootToRemove) then
     Exit;
 
-  { Never DelTree a drive-root child or a folder that holds non-NVM apps (Git, IDEs, …).
-    Only remove managed v* version trees in those cases. }
-  UnsafeOrShared :=
-    (not IsSafeRemovableDirectory(RootToRemove)) or
-    IsDriveRootPath(RootToRemove) or
-    IsDriveRootPath(NormalizePath(ExtractFileDir(NormalizePath(RootToRemove)))) or
-    InstallRootHasForeignContent(RootToRemove);
-
-  if UnsafeOrShared then
-  begin
-    Log('Install root is shared or unsafe for full delete; removing managed version dirs only: ' + RootToRemove);
-    ForceCloseNvmProcessesOnUninstall();
-    RemoveManagedVersionDirsOnly(RootToRemove);
-    Exit;
-  end;
-
-  if IsDisallowedNodeStorage(RootToRemove) then
+  if (not IsSafeRemovableDirectory(RootToRemove)) or IsDisallowedNodeStorage(RootToRemove) then
   begin
     Log('Skipping install root removal due to safety check: ' + RootToRemove);
-    ForceCloseNvmProcessesOnUninstall();
-    RemoveManagedVersionDirsOnly(RootToRemove);
     Exit;
   end;
 

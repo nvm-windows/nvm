@@ -93,37 +93,6 @@ begin
     Result := 'v' + V;
 end;
 
-procedure MeasureTreeBytes(const RootDir: String; var Bytes: Int64);
-var
-  FindRec: TFindRec;
-  CurrentPath: String;
-  Chunk: Int64;
-begin
-  if not FindFirst(AddBackslash(RootDir) + '*', FindRec) then
-    Exit;
-  try
-    repeat
-      if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
-      begin
-        CurrentPath := AddBackslash(RootDir) + FindRec.Name;
-        if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
-        begin
-          if (FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) = 0 then
-            MeasureTreeBytes(CurrentPath, Bytes);
-        end
-        else
-        begin
-          Chunk := FindRec.SizeHigh;
-          Chunk := (Chunk shl 32) + FindRec.SizeLow;
-          Bytes := Bytes + Chunk;
-        end;
-      end;
-    until not FindNext(FindRec);
-  finally
-    FindClose(FindRec);
-  end;
-end;
-
 procedure MeasureGlobalNpmModules(var ModuleCount: Integer; var Bytes: Int64);
 var
   RootDir: String;
@@ -385,7 +354,6 @@ begin
   );
   OfficialNodePage.Add('Adopt — copy into NVM and uninstall the existing installation');
   OfficialNodePage.Add('Drop — uninstall the existing installation (do not copy)');
-  HardenWizardCheckListBox(OfficialNodePage.CheckListBox);
 
   if OfficialNodeAction = 'drop' then
     OfficialNodePage.Values[1] := True

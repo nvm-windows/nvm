@@ -39,9 +39,50 @@ var
   BudgetDeadline: Cardinal;
   BudgetCode: String;
   BudgetMessage: String;
+  ExecStepProgressPage: TOutputProgressWizardPage;
+  ExecStepSoftWarnSec: Integer;
+  ExecStepSoftWarnDetail: String;
+  ExecStepSoftWarnVersion: String;
+  LastInstallerFailureCode: String;
+  LastInstallerFailureMessage: String;
+  LastInstallerFailureLogPath: String;
   DeferOfficialNodeOnV2Upgrade: Boolean;
 
+const
+  WAIT_OBJECT_0 = 0;
+  WAIT_TIMEOUT = $00000102;
+  SYNCHRONIZE = $00100000;
+  PROCESS_TERMINATE = $0001;
+  PROCESS_QUERY_LIMITED_INFORMATION = $1000;
+  CSIDL_COMMON_APPDATA = $0023;
+  InstallLogSliceMaxChars = 49152;
+  SC_MANAGER_CONNECT = $0001;
+  SERVICE_QUERY_STATUS = $0004;
+  SERVICE_RUNNING = $00000004;
+  CopySoftWarnSecDefault = 90;
+  CopyHardTimeoutMinSec = 300;
+  CopyHardTimeoutMaxSec = 900;
+  MigrationWarnMinFiles = 100000;
+  MigrationWarnMinBytes = 1073741824;
+
+type
+  TServiceStatus = record
+    dwServiceType: DWORD;
+    dwCurrentState: DWORD;
+    dwControlsAccepted: DWORD;
+    dwWin32ExitCode: DWORD;
+    dwServiceSpecificExitCode: DWORD;
+    dwCheckPoint: DWORD;
+    dwWaitHint: DWORD;
+  end;
+
+function OpenProcess(dwDesiredAccess: DWORD; bInheritHandle: BOOL; dwProcessId: DWORD): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function CloseHandle(hObject: THandle): BOOL;
+  external 'CloseHandle@kernel32.dll stdcall';
+
 #include "..\installtimeout.iss"
+#include "..\installpreflight.iss"
 
 function NormalizePath(const PathValue: String): String;
 begin
