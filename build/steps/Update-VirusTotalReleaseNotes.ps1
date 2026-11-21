@@ -1,25 +1,66 @@
 # Rebuild the ## VirusTotal section on a GitHub Release from current asset files.
 # Call after VirusTotal upload so hashes are indexed. Safe for override_existing_release
-# republishes — always replaces any prior VirusTotal block with links for the files on disk.
+# republishes - always replaces any prior VirusTotal block with links for the files on disk.
 #
 # Requires: gh CLI, GH_TOKEN with contents:write
 
 param(
-	[Parameter(Mandatory = $true)]
-	[string]$Tag,
+	[string]$Tag = "",
 
-	[Parameter(Mandatory = $true)]
-	[string]$AssetRoot
+	[string]$AssetRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+function Get-NvmVirusTotalLinkLabel {
+	param(
+		[Parameter(Mandatory = $true)]
+		[string]$FileName,
+
+		[Parameter(Mandatory = $true)]
+		[string]$VersionLabel
+	)
+
+	$name = [System.IO.Path]::GetFileName($FileName)
+	$arch = "x64"
+	if ($name -match '(?i)arm64') {
+		$arch = "arm64"
+	}
+	elseif ($name -match '(?i)amd64') {
+		$arch = "amd64"
+	}
+	elseif ($name -match '(?i)x86(?!_)') {
+		$arch = "x86"
+	}
+	elseif ($name -match '(?i)x64') {
+		$arch = "x64"
+	}
+
+	if ($name -match '(?i)-sync\.exe$') {
+		return "NVM for Windows v$VersionLabel Sync Tool $arch Virus Report"
+	}
+	if ($name -match '(?i)-setup\.exe$') {
+		return "NVM for Windows v$VersionLabel $arch Virus Report"
+	}
+	return "NVM for Windows v$VersionLabel $arch Virus Report ($name)"
+}
+
+# Dot-sourceable for unit tests (function above only).
+if ($MyInvocation.InvocationName -eq '.') {
+	return
+}
 
 if ([string]::IsNullOrWhiteSpace($Tag)) {
 	throw "Tag is required"
 }
 if (-not (Test-Path -LiteralPath $AssetRoot -PathType Container)) {
 	throw "AssetRoot not found: $AssetRoot"
+}
+
+$versionLabel = $Tag.Trim()
+if ($versionLabel.StartsWith("v") -or $versionLabel.StartsWith("V")) {
+	$versionLabel = $versionLabel.Substring(1)
 }
 
 $exes = @(
@@ -34,11 +75,18 @@ $bullets = New-Object System.Collections.Generic.List[string]
 foreach ($exe in $exes) {
 	$hash = (Get-FileHash -LiteralPath $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 	$url = "https://www.virustotal.com/gui/file/$hash"
-	$bullets.Add("- [``$($exe.Name)``]($url)")
-	Write-Host ("VirusTotal link -> {0} => {1}" -f $exe.Name, $url)
+	$label = Get-NvmVirusTotalLinkLabel -FileName $exe.Name -VersionLabel $versionLabel
+	$bullets.Add("- [$label]($url)")
+	Write-Host ("VirusTotal link -> {0} => {1}" -f $label, $url)
 }
 
-$section = "## VirusTotal`n`n" + ($bullets -join "`n")
+$section = @(
+	"## VirusTotal",
+	"",
+	"These links open **antivirus scan reports** on VirusTotal. They are **not downloads** - use **Assets** below for installers and sync tools.",
+	"",
+	($bullets -join "`n")
+) -join "`n"
 
 $view = gh release view $Tag --json body | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) {
